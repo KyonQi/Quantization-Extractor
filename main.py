@@ -10,8 +10,6 @@ from model_utils import get_imagenet_labels, preprocess_image, extract_layers
 from protocol import LayerConfig, LayerType
 from coordinator import Coordinator
 
-
-
 def main() -> None:
     # 1. Prepare data
     labels = get_imagenet_labels("./img/imagenet_labels.json")
@@ -35,7 +33,7 @@ def main() -> None:
     sim_conv_layers = extract_layers(torch_model)
     fc: nn.Linear  = torch_model.classifier[1] # [0]dropout, [1]linear
     fc_cfg = LayerConfig(name="fc_final", type=LayerType.LINEAR, in_channels=fc.in_features, out_channels=fc.out_features)
-    sim_fc_layer = (fc_cfg, fc.weight.detach().numpy(), fc.bias.detach().numpy())
+    sim_fc_layer = (fc_cfg, fc.weight.detach().cpu().numpy(), fc.bias.detach().cpu().numpy())
 
     # 4. Run simulation
     print(f"=== Running simulation ===")

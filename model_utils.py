@@ -62,7 +62,7 @@ def fuse_conv_bn(conv: nn.Conv2d, bn: nn.BatchNorm2d) -> tuple[np.ndarray, np.nd
             view_shape = [-1] + [1] * (w.ndim - 1)
             w_fused = w * scale.view(view_shape)
             b_fused = (b - mean) * scale + beta
-        return w_fused.numpy(), b_fused.numpy()
+        return w_fused.cpu().numpy(), b_fused.cpu().numpy()
 
 def extract_layers(model: models.MobileNetV2) -> list[tuple[LayerConfig, np.ndarray, np.ndarray]]:
     """ Parse the PyTorch model to extract configs for simulation """
