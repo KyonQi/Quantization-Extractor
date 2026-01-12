@@ -1,130 +1,180 @@
 import torch
 import torchvision.models as models
 import torchvision.datasets as datasets
-from torchvision.models.quantization.mobilenetv2 import QuantizableMobileNetV2
-import torch.nn as nn
 import torchvision.transforms as transforms
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision.models.quantization import mobilenet_v2 as q_mobilenet_v2
-
-import numpy as np
-import os
 from tqdm import tqdm
 
-from model_utils import extract_layers, get_imagenet_labels
-from protocol import LayerConfig, LayerType, QuantParams
-from coordinator import QuantCoordinator
+# Imagenette 到 ImageNet 的映射
+IMAGENETTE_TO_IMAGENET = {
+    0: 0,    # tench
+    1: 217,  # English springer
+    2: 482,  # cassette player
+    3: 491,  # chain saw
+    4: 497,  # church
+    5: 566,  # French horn
+    6: 569,  # garbage truck
+    7: 571,  # gas pump
+    8: 574,  # golf ball
+    9: 701   # parachute
+}
 
-def get_pytorch_quantized_model(data_laoder: DataLoader):
-    q_model: QuantizableMobileNetV2 = q_mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT, 
+def get_pytorch_quantized_model(train_loader: DataLoader, num_calibration_batches=200):
+    """
+    PyTorch quantization
+    """
+    q_model = q_mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1, 
                              quantize=False)
     q_model.eval()
-
+    
+    # configure the quant backend
     backend = 'fbgemm'
     torch.backends.quantized.engine = backend
     q_model.qconfig = torch.quantization.get_default_qconfig(backend=backend)
-
+    
+    # fuse model
     q_model.fuse_model()
-
+    
+    # prepare to quant
     torch.quantization.prepare(q_model, inplace=True)
-    # Calibrate with the training set
+    
+    # calibrate
+    print(f"Calibrating with {num_calibration_batches} batches...")
+    q_model.eval() # eval is important: make sure dropout doesn't work, and batchnorm doesn't update the params
     with torch.no_grad():
-        for i, (image, _) in enumerate(data_laoder):
-            if i >= 100:
+        for i, (images, _) in enumerate(train_loader):
+            if i >= num_calibration_batches:
                 break
-            q_model(image)
-
+            q_model(images)
+            if (i + 1) % 50 == 0:
+                print(f"  Calibrated {i + 1}/{num_calibration_batches} batches")
+    
+    # convert to the quant model
     torch.quantization.convert(q_model, inplace=True)
-
+    print("Quantization complete!\n")
+    
     return q_model
 
 def evaluate_distributed():
-    # 1. prepare model and dataset
-    data_dir = "./data/imagenette2-320/val"
+    # 1. prepare the dataset
+    data_dir = "./data/imagenette2-320"
     transform = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                           std=[0.229, 0.224, 0.225])
     ])
-
-    try:
-        dataset = datasets.ImageFolder(data_dir, transform=transform)
-    except Exception as e:
-        print(f"Error loading dataset from {data_dir}: {e}")
-        return
-
-    ## Use 10 images for quick evaluation
-    subset_size = 100
-    subset = torch.utils.data.Subset(dataset=dataset, indices=torch.arange(subset_size))
-    dataloader = DataLoader(subset, batch_size=1, shuffle=False)
-
-    ## pytorch fp32 model
-    pt_fp32_model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1)
-    ## pytorch quantized model
-    pt_int8_model = get_pytorch_quantized_model(data_laoder=dataloader)
-    ## simulated quantized model
-    sim_layers = extract_layers(pt_fp32_model)
-    fc: nn.Linear = pt_fp32_model.classifier[1]
-    fc_cfg = LayerConfig(
-        "fc_final", LayerType.LINEAR, fc.in_features, fc.out_features
-    )
-    sim_layers.append((fc_cfg, fc.weight.detach().cpu().numpy(), fc.bias.detach().cpu().numpy()))
-    ## init coordinator
-    coor = QuantCoordinator(num_workers=3, quant_params_path="./mobilenetv2_quant_params.json")
-    labels_map = get_imagenet_labels("./img/imagenet_labels.json")
     
-    # 2. evaluate
-    results = {'FP32': 0, 'PT_INT8': 0, 'SIM_INT8': 0}
+    train_dir = f"{data_dir}/train"
+    val_dir = f"{data_dir}/val"
+    
+    try:
+        train_dataset = datasets.ImageFolder(train_dir, transform=transform)
+        val_dataset = datasets.ImageFolder(val_dir, transform=transform)
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        return
+    
+    # calibrate data
+    calibration_loader = DataLoader(
+        train_dataset, 
+        batch_size=32,
+        shuffle=True,
+        num_workers=4
+    )
+    
+    # small sample
+    eval_subset = torch.utils.data.Subset(
+        val_dataset, 
+        indices=torch.arange(100)
+    )
+    eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False)
+    
+    # 2. load the model
+    print("="*60)
+    print("Loading FP32 model...")
+    pt_fp32_model = models.mobilenet_v2(
+        weights=models.MobileNet_V2_Weights.IMAGENET1K_V1
+    )
+    pt_fp32_model.eval()
+    
+    print("\nQuantizing model...")
+    pt_int8_model = get_pytorch_quantized_model(
+        train_loader=calibration_loader,
+        num_calibration_batches=200
+    )
+    
+    # 3. evaluating
+    results = {'FP32': 0, 'PT_INT8': 0}
     total = 0
-
-    print(f"\n{'='*30} FULL SPECTRUM COMPARISON {'='*30}")
-    print(f"{'GT':<15} | {'FP32':<15} | {'PT INT8':<15} | {'SIM INT8':<15}")
-    print("-" * 85)
-
+    
+    print("="*60)
+    print("EVALUATION (100 samples)")
+    print("="*60)
+    
     with torch.no_grad():
-        for inputs, labels in tqdm(dataloader, desc="Evaluating"):
+        for inputs, labels in tqdm(eval_loader, desc="Evaluating"):
             label_idx = int(labels.item())
-
-            # 2.1 Groundtruth with FP32 model
+            true_global_label = IMAGENETTE_TO_IMAGENET[label_idx]
+            
+            # FP32 prediction
             fp32_out = pt_fp32_model(inputs)
             fp32_pred = int(torch.argmax(fp32_out))
-
-            # 2.2 Pytorch quantized model
+            
+            # INT8 prediction
             pt_int8_out = pt_int8_model(inputs)
             pt_int8_pred = int(torch.argmax(pt_int8_out))
-
-            # 2.3 Simulated quantized model
-            img_numpy = inputs.numpy().squeeze(0)
-            coor.quantize_input(img_numpy)
-            sim_uint8_out, last_name = coor.execute_inference(sim_layers)
-            sim_uint8_pred = int(np.argmax(sim_uint8_out))
-
-            if fp32_pred == label_idx:
-                results['FP32'] += 1
-            if pt_int8_pred == label_idx:
-                results['PT_INT8'] += 1
-            if sim_uint8_pred == label_idx:
-                results['SIM_INT8'] += 1
-            total += 1
-
-            if total % 10 == 0:
-                gt_name = labels_map[label_idx][:13]
-                n1 = labels_map[fp32_pred][:13]
-                n2 = labels_map[pt_int8_pred][:13]
-                n3 = labels_map[sim_uint8_pred][:13]
-
-                print(f"{gt_name:<15} | {n1:<15} | {n2:<15} | {n3:<15}")
-    
-    print(f"\n{'='*20} Final Scoreboard {'='*20}")
-    print(f"Total Samples:      {total}")
-    print(f"1. PyTorch FP32:    {results['FP32']/total:.2%}")
-    print(f"2. PyTorch INT8:    {results['PT_INT8']/total:.2%}")
-    print(f"3. Your Simulator:  {results['SIM_INT8']/total:.2%}")
-    print("-" * 50)
             
+            if fp32_pred == true_global_label:
+                results['FP32'] += 1
+            if pt_int8_pred == true_global_label:
+                results['PT_INT8'] += 1
+            
+            total += 1
+    
+    print(f"\n{'='*25} Results (100 samples) {'='*25}")
+    print(f"Total Samples:      {total}")
+    print(f"FP32 Accuracy:      {results['FP32']/total:.2%} ({results['FP32']}/{total})")
+    print(f"INT8 Accuracy:      {results['PT_INT8']/total:.2%} ({results['PT_INT8']}/{total})")
+    print(f"Accuracy Drop:      {(results['FP32']-results['PT_INT8'])/total:.2%}")
+    print("-" * 60)
+    
+    # if small test passes, run the full test set
+    if results['PT_INT8']/total > 0.85:
+        print("\n✓ Small test passed! Running full evaluation...")
+        
+        full_eval_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+        results_full = {'FP32': 0, 'PT_INT8': 0}
+        total_full = 0
+        
+        with torch.no_grad():
+            for inputs, labels in tqdm(full_eval_loader, desc="Full Evaluation"):
+                label_idx = int(labels.item())
+                true_global_label = IMAGENETTE_TO_IMAGENET[label_idx]
+                
+                fp32_out = pt_fp32_model(inputs)
+                fp32_pred = int(torch.argmax(fp32_out))
+                
+                pt_int8_out = pt_int8_model(inputs)
+                pt_int8_pred = int(torch.argmax(pt_int8_out))
+                
+                if fp32_pred == true_global_label:
+                    results_full['FP32'] += 1
+                if pt_int8_pred == true_global_label:
+                    results_full['PT_INT8'] += 1
+                
+                total_full += 1
+        
+        print(f"\n{'='*20} Final Results (Full Dataset) {'='*20}")
+        print(f"Total Samples:      {total_full}")
+        print(f"FP32 Accuracy:      {results_full['FP32']/total_full:.2%} ({results_full['FP32']}/{total_full})")
+        print(f"INT8 Accuracy:      {results_full['PT_INT8']/total_full:.2%} ({results_full['PT_INT8']}/{total_full})")
+        print(f"Accuracy Drop:      {(results_full['FP32']-results_full['PT_INT8'])/total_full:.2%}")
+        print("-" * 60)
+    else:
+        print("\n✗ Small test failed! Check the label mapping above.")
+
 if __name__ == "__main__":
     evaluate_distributed()
-
-    
