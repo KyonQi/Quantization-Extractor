@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 from typing import Optional
 
-from protocol import LayerConfig, LayerType
+from protocol.protocol import LayerConfig, LayerType
 
 def get_imagenet_labels(path: str) -> list[str]:
     url = "https://raw.githubusercontent.com/anishathalye/imagenet-simple-labels/master/imagenet-simple-labels.json"
