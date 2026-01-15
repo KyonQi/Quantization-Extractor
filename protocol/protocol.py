@@ -46,8 +46,8 @@ class TaskPayload:
     """ send to the worker """
     layer_config: LayerConfig
     slice_idx: Tuple[int, int] # output row for conv, output feature for linear
-    input_patch: np.ndarray # slice of input feature map
-    weights: np.ndarray # slice of weights
+    input_patch: np.ndarray # slice of input feature map uint8
+    weights: np.ndarray # slice of weights int8
     bias: np.ndarray # slice of bias
     quant_params: QuantParams
 

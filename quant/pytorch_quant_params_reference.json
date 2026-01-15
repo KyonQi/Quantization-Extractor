@@ -1,0 +1,21 @@
+{
+  "init_conv_weights": {
+    "scale": 0.01938062347471714,
+    "zero_point": 0,
+    "min": -128.0,
+    "max": 127.0,
+    "dtype": "torch.qint8"
+  },
+  "blk1_dw_weights": {
+    "scale": 0.07876121997833252,
+    "zero_point": 65,
+    "dtype": "torch.qint8"
+  },
+  "fc_final_weights": {
+    "scale": 0.3513110876083374,
+    "zero_point": 35,
+    "min": -128.0,
+    "max": 127.0,
+    "dtype": "torch.qint8"
+  }
+}

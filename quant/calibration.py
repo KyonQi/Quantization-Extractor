@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict
 from tqdm import tqdm
 
 from model_utils import extract_layers, fuse_conv_bn
-from protocol import LayerConfig, LayerType
+from protocol.protocol import LayerConfig, LayerType
 
 class QuantCalibrator:
     def __init__(self, model: nn.Module, data_path: str):
@@ -35,19 +35,28 @@ class QuantCalibrator:
             transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                            std=[0.229, 0.224, 0.225])
         ])
         try:
             dataset = datasets.ImageFolder(self.data_path, transform=transform)
         except:
             print(f"Failed to load dataset from {self.data_path}. Using fake data for calibration.")
-            dataset = torch.utils.data.TensorDataset(
-                torch.randn(num_images, 3, 224, 224),
-                torch.zeros(num_images)
-            )
-        indices = torch.arange(min(len(dataset), num_images))
-        subset = torch.utils.data.Subset(dataset=dataset, indices=indices)
-        return DataLoader(subset, batch_size=32, shuffle=False, num_workers=4)
+            return
+            # dataset = torch.utils.data.TensorDataset(
+            #     torch.randn(num_images, 3, 224, 224),
+            #     torch.zeros(num_images)
+            # )
+        calibration_loader = DataLoader(
+            dataset=dataset,
+            batch_size=32,
+            shuffle=True,
+            num_workers=4
+        )
+        return calibration_loader
+        # indices = torch.arange(min(len(dataset), num_images))
+        # subset = torch.utils.data.Subset(dataset=dataset, indices=indices)
+        # return DataLoader(subset, batch_size=32, shuffle=False, num_workers=4)
 
     def _update_stats(self, layer_name: str, activations: torch.Tensor):
         """ Update min/max statistics for a given layer """
@@ -63,27 +72,60 @@ class QuantCalibrator:
                 min(global_min, current_min),
                 max(global_max, current_max)
             ]
+    def _calculate_weight_quant_params(self, min_val: float, max_val: float, num_bits=8) -> Tuple[float, int]:
+        """
+        Calculate scale and zero point for weights using symmetric quantization
+        """
+        qmin = -(1 << (num_bits - 1)) # -128
+        qmax = (1 << (num_bits - 1)) - 1 # 127
+        
+        abs_max = max(abs(min_val), abs(max_val))
+        if abs_max == 0:
+            abs_max = 1e-8
+        
+        scale = abs_max / qmax
+        zero_point = 0
 
-    def _calculate_quant_params(self, min_val: float, max_val: float, num_bits=8) -> Tuple[float, int]:
-        """ 
-        Calculate scale and zero_point for asymmetric quantization
-        scale = (max - min) / (qmax - qmin)
-        zero_point = qmin - min / scale
-        where qmin=0, qmax=2^num_bits - 1
+        return scale, zero_point
+
+    def _calculate_activation_quant_params(self, min_val: float, max_val: float, num_bits=8) -> Tuple[float, int]:
+        """
+        Calculate scale and zero point for activations using asymmetric quantization
         """
         qmin = 0
-        qmax = (1 << num_bits) - 1
-        # ensure zero point is in range
+        qmax = (1 << (num_bits)) - 1 # 255
         min_val = min(min_val, 0.0)
         max_val = max(max_val, 0.0)
+        
         if min_val == max_val:
-            max_val = min_val + 1e-5  # prevent division by zero
+            max_val = min_val + 1e-8
         
         scale = (max_val - min_val) / (qmax - qmin)
         zero_point = int(round(qmin - min_val / scale))
-        zero_point = max(qmin, min(qmax, zero_point)) # clamp to [qmin, qmax]
+        zero_point = np.clip(zero_point, qmin, qmax)
         
         return scale, zero_point
+
+    # def _calculate_quant_params(self, min_val: float, max_val: float, num_bits=8) -> Tuple[float, int]:
+    #     """ 
+    #     Calculate scale and zero_point for asymmetric quantization
+    #     scale = (max - min) / (qmax - qmin)
+    #     zero_point = qmin - min / scale
+    #     where qmin=0, qmax=2^num_bits - 1
+    #     """
+    #     qmin = 0
+    #     qmax = (1 << num_bits) - 1
+    #     # ensure zero point is in range
+    #     min_val = min(min_val, 0.0)
+    #     max_val = max(max_val, 0.0)
+    #     if min_val == max_val:
+    #         max_val = min_val + 1e-5  # prevent division by zero
+        
+    #     scale = (max_val - min_val) / (qmax - qmin)
+    #     zero_point = int(round(qmin - min_val / scale))
+    #     zero_point = max(qmin, min(qmax, zero_point)) # clamp to [qmin, qmax]
+        
+    #     return scale, zero_point
 
     def calibrate(self, num_images=1000) -> Dict[str, Dict[str, np.ndarray]]:
         """ Run calibration to collect activation statistics """
@@ -151,7 +193,7 @@ class QuantCalibrator:
         # compute the scale and zero_point for each layer's activations
         print("Calculating activation quantization parameters")
         for layer_name, (min_val, max_val) in self.activation_stats.items():
-            s, z = self._calculate_quant_params(min_val, max_val)
+            s, z = self._calculate_activation_quant_params(min_val, max_val)
             self.quant_params[layer_name] = {
                 "scale": float(s),
                 "zero_point": int(z),
@@ -163,7 +205,7 @@ class QuantCalibrator:
         for layer_cfg, weights, bias in sim_layers:
             w_min = weights.min()
             w_max = weights.max()
-            s, z = self._calculate_quant_params(w_min, w_max)
+            s, z = self._calculate_weight_quant_params(w_min, w_max)
             self.quant_params[f"{layer_cfg.name}_weights"] = {
                 "scale": float(s),
                 "zero_point": int(z),
@@ -178,7 +220,7 @@ class QuantCalibrator:
         fc_weights = fc_layer.weight.detach().cpu().numpy()
         w_min = fc_weights.min()
         w_max = fc_weights.max()
-        s, z = self._calculate_quant_params(w_min, w_max)
+        s, z = self._calculate_weight_quant_params(w_min, w_max)
         self.quant_params["fc_final_weights"] = {
             "scale": float(s),
             "zero_point": int(z),
@@ -195,8 +237,8 @@ class QuantCalibrator:
         print(f"Quantization parameters saved to {filename}")
 
 if __name__ == "__main__":
-    model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1)
-    data_dir = "./data/imagenette2-320/val"
+    model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+    data_dir = "./data/imagenette2-320/train"
     calib = QuantCalibrator(model=model, data_path=data_dir)
     params = calib.calibrate(100)
     calib.save_json("mobilenetv2_quant_params.json")
@@ -205,14 +247,3 @@ if __name__ == "__main__":
     keys = list(params.keys())
     for k in keys[:5]:
         print(f"{k}: {params[k]}")
-
-    
-
-
-        
-                
-                    
-
-        
-
-        

@@ -1,0 +1,355 @@
+QuantizableMobileNetV2(
+  (features): Sequential(
+    (0): Conv2dNormActivation(
+      (0): QuantizedConvReLU2d(3, 32, kernel_size=(3, 3), stride=(2, 2), scale=0.2730920612812042, zero_point=0, padding=(1, 1))
+      (1): Identity()
+      (2): Identity()
+    )
+    (1): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(32, 32, kernel_size=(3, 3), stride=(1, 1), scale=0.5431326031684875, zero_point=0, padding=(1, 1), groups=32)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): QuantizedConv2d(32, 16, kernel_size=(1, 1), stride=(1, 1), scale=2.147238254547119, zero_point=67)
+        (2): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (2): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(16, 96, kernel_size=(1, 1), stride=(1, 1), scale=1.2646390199661255, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(96, 96, kernel_size=(3, 3), stride=(2, 2), scale=0.33089664578437805, zero_point=0, padding=(1, 1), groups=96)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(96, 24, kernel_size=(1, 1), stride=(1, 1), scale=1.2909539937973022, zero_point=55)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (3): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(24, 144, kernel_size=(1, 1), stride=(1, 1), scale=0.284327894449234, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(144, 144, kernel_size=(3, 3), stride=(1, 1), scale=0.20449981093406677, zero_point=0, padding=(1, 1), groups=144)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(144, 24, kernel_size=(1, 1), stride=(1, 1), scale=1.1777055263519287, zero_point=64)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.4631494283676147, zero_point=63
+        (activation_post_process): Identity()
+      )
+    )
+    (4): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(24, 144, kernel_size=(1, 1), stride=(1, 1), scale=0.5513550639152527, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(144, 144, kernel_size=(3, 3), stride=(2, 2), scale=0.148180291056633, zero_point=0, padding=(1, 1), groups=144)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(144, 32, kernel_size=(1, 1), stride=(1, 1), scale=0.690474271774292, zero_point=70)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (5): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(32, 192, kernel_size=(1, 1), stride=(1, 1), scale=0.10069771111011505, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(192, 192, kernel_size=(3, 3), stride=(1, 1), scale=0.1049230769276619, zero_point=0, padding=(1, 1), groups=192)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(192, 32, kernel_size=(1, 1), stride=(1, 1), scale=0.5037412047386169, zero_point=60)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.9425680041313171, zero_point=72
+        (activation_post_process): Identity()
+      )
+    )
+    (6): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(32, 192, kernel_size=(1, 1), stride=(1, 1), scale=0.09885149449110031, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(192, 192, kernel_size=(3, 3), stride=(1, 1), scale=0.08699396252632141, zero_point=0, padding=(1, 1), groups=192)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(192, 32, kernel_size=(1, 1), stride=(1, 1), scale=0.5802181363105774, zero_point=88)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.08159601688385, zero_point=77
+        (activation_post_process): Identity()
+      )
+    )
+    (7): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(32, 192, kernel_size=(1, 1), stride=(1, 1), scale=0.16441872715950012, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(192, 192, kernel_size=(3, 3), stride=(2, 2), scale=0.09057718515396118, zero_point=0, padding=(1, 1), groups=192)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(192, 64, kernel_size=(1, 1), stride=(1, 1), scale=0.5404337048530579, zero_point=65)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (8): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(64, 384, kernel_size=(1, 1), stride=(1, 1), scale=0.11095897108316422, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(384, 384, kernel_size=(3, 3), stride=(1, 1), scale=0.08966761082410812, zero_point=0, padding=(1, 1), groups=384)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(384, 64, kernel_size=(1, 1), stride=(1, 1), scale=0.503328263759613, zero_point=63)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.5763574838638306, zero_point=69
+        (activation_post_process): Identity()
+      )
+    )
+    (9): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(64, 384, kernel_size=(1, 1), stride=(1, 1), scale=0.0752595067024231, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(384, 384, kernel_size=(3, 3), stride=(1, 1), scale=0.057371627539396286, zero_point=0, padding=(1, 1), groups=384)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(384, 64, kernel_size=(1, 1), stride=(1, 1), scale=0.28349044919013977, zero_point=62)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.5981721878051758, zero_point=69
+        (activation_post_process): Identity()
+      )
+    )
+    (10): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(64, 384, kernel_size=(1, 1), stride=(1, 1), scale=0.054488405585289, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(384, 384, kernel_size=(3, 3), stride=(1, 1), scale=0.059321895241737366, zero_point=0, padding=(1, 1), groups=384)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(384, 64, kernel_size=(1, 1), stride=(1, 1), scale=0.45170772075653076, zero_point=58)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.5957317352294922, zero_point=71
+        (activation_post_process): Identity()
+      )
+    )
+    (11): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(64, 384, kernel_size=(1, 1), stride=(1, 1), scale=0.09814947098493576, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(384, 384, kernel_size=(3, 3), stride=(1, 1), scale=0.05930289998650551, zero_point=0, padding=(1, 1), groups=384)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(384, 96, kernel_size=(1, 1), stride=(1, 1), scale=0.2989366948604584, zero_point=60)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (12): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(96, 576, kernel_size=(1, 1), stride=(1, 1), scale=0.06728965044021606, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(576, 576, kernel_size=(3, 3), stride=(1, 1), scale=0.06811463832855225, zero_point=0, padding=(1, 1), groups=576)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(576, 96, kernel_size=(1, 1), stride=(1, 1), scale=0.20586442947387695, zero_point=69)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.37487319111824036, zero_point=69
+        (activation_post_process): Identity()
+      )
+    )
+    (13): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(96, 576, kernel_size=(1, 1), stride=(1, 1), scale=0.062374480068683624, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(576, 576, kernel_size=(3, 3), stride=(1, 1), scale=0.04060862213373184, zero_point=0, padding=(1, 1), groups=576)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(576, 96, kernel_size=(1, 1), stride=(1, 1), scale=0.20436231791973114, zero_point=61)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.3669601082801819, zero_point=60
+        (activation_post_process): Identity()
+      )
+    )
+    (14): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(96, 576, kernel_size=(1, 1), stride=(1, 1), scale=0.06380972266197205, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(576, 576, kernel_size=(3, 3), stride=(2, 2), scale=0.04789583384990692, zero_point=0, padding=(1, 1), groups=576)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(576, 160, kernel_size=(1, 1), stride=(1, 1), scale=0.19532424211502075, zero_point=67)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (15): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(160, 960, kernel_size=(1, 1), stride=(1, 1), scale=0.05679754912853241, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(960, 960, kernel_size=(3, 3), stride=(1, 1), scale=0.03365200757980347, zero_point=0, padding=(1, 1), groups=960)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(960, 160, kernel_size=(1, 1), stride=(1, 1), scale=0.2117803394794464, zero_point=69)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.28527116775512695, zero_point=80
+        (activation_post_process): Identity()
+      )
+    )
+    (16): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(160, 960, kernel_size=(1, 1), stride=(1, 1), scale=0.06873787194490433, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(960, 960, kernel_size=(3, 3), stride=(1, 1), scale=0.03103603981435299, zero_point=0, padding=(1, 1), groups=960)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(960, 160, kernel_size=(1, 1), stride=(1, 1), scale=0.22167354822158813, zero_point=69)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=0.34133103489875793, zero_point=77
+        (activation_post_process): Identity()
+      )
+    )
+    (17): QuantizableInvertedResidual(
+      (conv): Sequential(
+        (0): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(160, 960, kernel_size=(1, 1), stride=(1, 1), scale=0.06547397375106812, zero_point=0)
+          (1): Identity()
+          (2): Identity()
+        )
+        (1): Conv2dNormActivation(
+          (0): QuantizedConvReLU2d(960, 960, kernel_size=(3, 3), stride=(1, 1), scale=0.07661425322294235, zero_point=0, padding=(1, 1), groups=960)
+          (1): Identity()
+          (2): Identity()
+        )
+        (2): QuantizedConv2d(960, 320, kernel_size=(1, 1), stride=(1, 1), scale=0.3236057460308075, zero_point=44)
+        (3): Identity()
+      )
+      (skip_add): QFunctional(
+        scale=1.0, zero_point=0
+        (activation_post_process): Identity()
+      )
+    )
+    (18): Conv2dNormActivation(
+      (0): QuantizedConvReLU2d(320, 1280, kernel_size=(1, 1), stride=(1, 1), scale=0.08693724125623703, zero_point=0)
+      (1): Identity()
+      (2): Identity()
+    )
+  )
+  (classifier): Sequential(
+    (0): QuantizedDropout(p=0.2, inplace=False)
+    (1): QuantizedLinear(in_features=1280, out_features=1000, scale=0.07515984028577805, zero_point=23, qscheme=torch.per_channel_affine)
+  )
+  (quant): Quantize(scale=tensor([0.0625]), zero_point=tensor([63]), dtype=torch.quint8)
+  (dequant): DeQuantize()
+)
