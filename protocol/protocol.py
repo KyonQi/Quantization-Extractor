@@ -3,7 +3,7 @@ Protocol definitions for simulation
 """
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 import numpy as np
 
 class MessageType(Enum):
@@ -35,11 +35,11 @@ class QuantParams:
     """ quantization parameters needs to be shared between coordinator and workers """
     s_in: float
     z_in: int
-    s_w: float
-    z_w: int
+    s_w: Union[float, np.ndarray]
+    z_w: Union[float, np.ndarray]
     s_out: float
     z_out: int
-    m: float # precomputing multiplier for requantization m = (s_in * s_w) / s_out
+    m: Union[float, np.ndarray] #float # precomputing multiplier for requantization m = (s_in * s_w) / s_out
 
 @dataclass
 class TaskPayload:
@@ -48,7 +48,7 @@ class TaskPayload:
     slice_idx: Tuple[int, int] # output row for conv, output feature for linear
     input_patch: np.ndarray # slice of input feature map uint8
     weights: np.ndarray # slice of weights int8
-    bias: np.ndarray # slice of bias
+    bias: np.ndarray # slice of bias int32
     quant_params: QuantParams
 
 @dataclass

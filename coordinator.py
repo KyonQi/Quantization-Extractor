@@ -4,8 +4,8 @@ import json
 from typing import List, Dict, Tuple, Any
 
 from worker import Worker, QuantWorker
-from protocol import MessageType, TaskPayload, ResultPayload, LayerConfig, LayerType, QuantParams
-from operations import pad_input, relu6, numpy_conv2d, numpy_linear
+from protocol.protocol import MessageType, TaskPayload, ResultPayload, LayerConfig, LayerType, QuantParams
+from operations import pad_input, relu6, numpy_conv2d, numpy_linear, quantized_pad_input
 
 class Coordinator:
     def __init__(self, num_workers: int, input_shape: Tuple[int, int, int] = (3, 244, 244)) -> None:
@@ -141,14 +141,14 @@ class Coordinator:
 
         
 class QuantCoordinator:
-    def __init__(self, num_workers: int, quant_params_path: str) -> None:
+    def __init__(self, num_workers: int, quant_params_path: str = "NoUse") -> None:
         self.num_workers = num_workers
         self.task_queue = [multiprocessing.Queue() for _ in range(num_workers)]
         self.result_queue = multiprocessing.Queue()
         self.workers = []
 
-        with open(quant_params_path, 'r') as f:
-            self.q_params_dict = json.load(f)
+        # with open(quant_params_path, 'r') as f:
+        #     self.q_params_dict = json.load(f)
         
         self.feature_map: np.ndarray = None
         self.residual_buffer: Dict[str, Tuple[np.ndarray, float, int]] = {} # name -> (tensor, s, z)
@@ -161,76 +161,55 @@ class QuantCoordinator:
         p = self.q_params_dict[layer_name]
         return float(p['scale']), int(p['zero_point'])
     
-    def quantize_input(self, img_float: np.ndarray) -> None:
+    def quantize_input(self, img_float: np.ndarray, s_in: float, z_in: int) -> None:
         """ Quantize input image to uint8 """
-        s, z = self.get_quant_params('input')
-        self.feature_map = np.clip(np.round(img_float / s + z), 0, 255).astype(np.uint8)
+        # s, z = self.get_quant_params('input')
+        self.feature_map = np.clip(np.round(img_float / s_in + z_in), 0, 255).astype(np.uint8)
 
-    def execute_inference(self, layers: List[Tuple[LayerConfig, np.ndarray, np.ndarray]]) -> Tuple[np.ndarray, str]:
+    def execute_inference(self, layers: List[Tuple[LayerConfig, np.ndarray, np.ndarray, QuantParams]]) -> Tuple[np.ndarray, str]:
         self.workers = [QuantWorker(i, self.task_queue[i], self.result_queue) for i in range(self.num_workers)]
         for w in self.workers:
             w.start()
-        curr_layer_name = 'input'
+
+        last_layer_name = ""
         try:
-            for layer_cfg, weights, bias in layers:
-                curr_layer_name = self._run_layer(layer=layer_cfg, weights_float=weights,
-                                                  bias_float=bias, 
-                                                  prev_layer_name=curr_layer_name)
+            for layer_cfg, w_int8, b_int32, qp_dict in layers:
+                self._run_layer(layer=layer_cfg, weights=w_int8, bias=b_int32, qp_dict=qp_dict)
+                last_layer_name = layer_cfg.name
         finally:
-            # Terminate workers
             for q in self.task_queue:
                 q.put((MessageType.TERMINATE, None))
             for w in self.workers:
                 w.join()
-        return self.feature_map, curr_layer_name
+        return self.feature_map, last_layer_name
         
-    def _run_layer(self, layer: LayerConfig, weights_float: np.ndarray, bias_float: np.ndarray, prev_layer_name: str) -> str:
-        """ Run a quantized layer """
-        # 1. get quantization parameters
-        s_in, z_in = self.get_quant_params(prev_layer_name)
-        s_out, z_out = self.get_quant_params(layer_name=layer.name)
+    def _run_layer(self, layer: LayerConfig, weights: np.ndarray, bias: np.ndarray, qp_dict: dict) -> None:
+        s_in, z_in = qp_dict['s_in'], qp_dict['z_in']
+        s_out, z_out = qp_dict['s_out'], qp_dict['z_out']
+        s_w, z_w = qp_dict['s_w'], qp_dict['z_w']
 
-        w_name = f"{layer.name}_weights"
-        s_w, z_w = self.get_quant_params(w_name)
+        # calculate multiplier m
+        m = (s_in * s_w) / s_out
+        qp = QuantParams(s_in=s_in, z_in=z_in, s_out=s_out, z_out=z_out, s_w=s_w, z_w=z_w, m=m)
         
-        # 2. quantize weights and bias
-        weights_q = np.clip(np.round(weights_float / s_w + z_w), 0, 255).astype(np.uint8)
-        bias_q = np.round(bias_float / (s_in * s_w)).astype(np.int32)
-
-        # 3. prepare quantization parameters object
-        qb = QuantParams(
-            s_in=s_in,
-            z_in=z_in,
-            s_w=s_w,
-            z_w=z_w,
-            s_out=s_out,
-            z_out=z_out,
-            m=(s_in * s_w) / s_out
-        )
-
-        # 4. cache residual if needed
         if layer.residual_add_to:
             self.residual_buffer[layer.residual_add_to] = (self.feature_map.copy(), s_in, z_in)
-
-        # 5. global average pooling handling
+        
         if layer.type == LayerType.LINEAR and self.feature_map.ndim == 3:
-            C, H, W = self.feature_map.shape
-            gap_output = np.mean(self.feature_map.astype(np.float32), axis=(1, 2)) # float32
-            # quantize gap output
-            self.feature_map = np.clip(np.round(gap_output / s_in + z_in), 0, 255).astype(np.uint8)
+            gap_output = np.mean(self.feature_map, axis=(1, 2)) # global average pooling, shape: (C, H, W ) -> (C, ) 
+            self.feature_map = np.round(gap_output).astype(np.uint8)
 
-        # 6. distribute tasks
+        
         if layer.type == LayerType.LINEAR:
-            self._distribute_linear(layer=layer, weights_q=weights_q, bias_q=bias_q, quant_params=qb)
+            self._distribute_linear(layer=layer, weights_q=weights, bias_q=bias, quant_params=qp)
         else:
-            self._distribute_conv(layer=layer, weights_q=weights_q, bias_q=bias_q, quant_params=qb)
+            self._distribute_conv(layer=layer, weights_q=weights, bias_q=bias, quant_params=qp)
         
-        # 7. add residual if needed
         if layer.residual_connect_from:
-            self._apply_residual(layer.residual_connect_from, s_out, z_out)
-        
-        return layer.name
-    
+            target_s = qp_dict.get('residual_out_scale', s_out)
+            target_z = qp_dict.get('residual_out_zp', z_out)
+            self._apply_residual(res_key=layer.residual_connect_from, curr_s=s_in, curr_z=z_in, target_s=target_s, target_z=target_z)
+            
     def _distribute_linear(self, layer: LayerConfig, weights_q: np.ndarray, bias_q: np.ndarray, quant_params: QuantParams) -> None:
         input_vec = self.feature_map.flatten() # (C_in, )
         total_classes = layer.out_channels
@@ -246,13 +225,29 @@ class QuantCoordinator:
             # split weights and bias by output classes
             w_chunk = weights_q[start_cls:end_cls, :]
             b_chunk = bias_q[start_cls:end_cls]
+            # split the quantparam
+            ## Slice Multiplier (m)
+            m_chunk = quant_params.m[start_cls:end_cls] if isinstance(quant_params.m, np.ndarray) else quant_params.m
+            ## Slice Weight Zero Point (z_w)
+            zw_chunk = quant_params.z_w[start_cls:end_cls] if isinstance(quant_params.z_w, np.ndarray) else quant_params.z_w
+            ## Slice Weight Scale (s_w)
+            sw_chunk = quant_params.s_w[start_cls:end_cls] if isinstance(quant_params.s_w, np.ndarray) else quant_params.s_w
+            task_qp = QuantParams(
+                s_in=quant_params.s_in,
+                z_in=quant_params.z_in,
+                s_out=quant_params.s_out,
+                z_out=quant_params.z_out,
+                s_w=sw_chunk,
+                z_w=zw_chunk,
+                m=m_chunk
+            )
             task = TaskPayload(
                 layer_config=layer,
                 slice_idx=(start_cls, end_cls),
                 input_patch=input_vec,
                 weights=w_chunk,
                 bias=b_chunk,
-                quant_params=quant_params
+                quant_params=task_qp
             )
             self.task_queue[i].put((MessageType.TASK, task))
             active_workers += 1
@@ -273,7 +268,7 @@ class QuantCoordinator:
     def _distribute_conv(self, layer: LayerConfig, weights_q: np.ndarray, bias_q: np.ndarray, quant_params: QuantParams) -> None:
         C, H, W = self.feature_map.shape
         if layer.padding > 0:
-            padded_input = pad_input(self.feature_map, layer.padding)
+            padded_input = quantized_pad_input(self.feature_map, layer.padding, quant_params.z_in)
         else:
             padded_input = self.feature_map
         
@@ -319,22 +314,11 @@ class QuantCoordinator:
                 raise ValueError("Unexpected message type from worker")
         self.feature_map = new_map
 
-    def _apply_residual(self, res_key: str, s_current: float, z_current: int) -> None:
-        """ apply residual connection """
-        if res_key not in self.residual_buffer:
-            raise ValueError(f"Residual key {res_key} not found in buffer")
+    def _apply_residual(self, res_key: str, curr_s, curr_z, target_s, target_z) -> None:
+        res_data, res_s, res_z = self.residual_buffer[res_key]
+        curr_f = (self.feature_map.astype(np.float32)- curr_z) * curr_s
+        res_f = (res_data.astype(np.float32) - res_z) * res_s
+        sum_f = curr_f + res_f
+        self.feature_map = np.clip(np.round(sum_f / target_s + target_z), 0, 255).astype(np.uint8)
         
-        res_data, s_res, z_res = self.residual_buffer[res_key]
-        if s_res != s_current or z_res != z_current:
-            # rescale: res_data -> float32 -> current quantization
-            # (q_res - z_res) * s_res -> float32
-            # float32 -> ( / s_current + z_current) -> q_current
-            res_float = (res_data.astype(np.float32) - z_res) * s_res
-            res_quant = np.clip(np.round(res_float / s_current + z_current), 0, 255).astype(np.uint8)
-        else:
-            res_quant = res_data
-        
-        # q_out = q_current + q_res - z_current ????
-        sum_result = self.feature_map.astype(np.int32) + res_quant.astype(np.int32) - z_current
-        self.feature_map = np.clip(sum_result, 0, 255).astype(np.uint8)
     

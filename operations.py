@@ -1,7 +1,7 @@
 """ Calculating operations for simulation """
 import numpy as np
 
-from protocol import QuantParams
+from protocol.protocol import QuantParams
 
 def pad_input(x: np.ndarray, padding: int) -> np.ndarray:
     """ Pad the input feature map with zeros """
@@ -60,27 +60,40 @@ def numpy_linear(input_vec: np.ndarray, weights: np.ndarray, bias: np.ndarray) -
     return weights @ input_vec + bias  # (out_features, in_features) @ (in_features,) + (out_features,)
 
 
-def requantize(acc_int32: np.ndarray, m: float, z_out: int, is_activation: bool = True) -> np.ndarray:
-    """
-    Requantize the int32 accumulator to uint8 using the formula:
-    output = clip(round(acc * m) + z_out, 0, 255)
-    If is_activation is True, apply ReLU6 after requantization.
-    """
-    # Apply multiplier and add zero point
-    output = np.round(acc_int32.astype(np.float32) * m) + z_out
-    # Clip to uint8 range
-    output = np.clip(output, 0, 255).astype(np.uint8)
-    # if is_activation:
-        ## Apply ReLU6
-        # output = relu6(output.astype(np.float32)).astype(np.uint8)
-    return output
+# def requantize(acc_int32: np.ndarray, m: float, z_out: int, is_activation: bool = True) -> np.ndarray:
+#     """
+#     Requantize the int32 accumulator to uint8 using the formula:
+#     output = clip(round(acc * m) + z_out, 0, 255)
+#     If is_activation is True, apply ReLU6 after requantization.
+#     """
+#     # Apply multiplier and add zero point
+#     output = np.round(acc_int32.astype(np.float32) * m) + z_out
+#     # Clip to uint8 range
+#     output = np.clip(output, 0, 255).astype(np.uint8)
+#     # if is_activation:
+#         ## Apply ReLU6
+#         # output = relu6(output.astype(np.float32)).astype(np.uint8)
+#     return output
+
+def quantized_pad_input(x: np.ndarray, padding: int, z_in: int) -> np.ndarray:
+    """ Pad the input feature map with zeros """
+    if padding == 0:
+        return x
+    # x: (C, H, W) -> Pad H and W dimension with 0
+    return np.pad(x, ((0, 0), (padding, padding), (padding, padding)), mode='constant', constant_values=z_in)
 
 def quantized_conv2d(input_patch: np.ndarray, weights: np.ndarray, bias: np.ndarray,
                      stride: int, groups: int, quant_params: QuantParams) -> np.ndarray:
     """ Quantized convolution operation """
+
+    z_in = quant_params.z_in
+    z_w = quant_params.z_w
+    if isinstance(z_w, np.ndarray):
+        z_w = z_w.reshape(-1, 1, 1, 1)  # Reshape for broadcasting if per-channel
+
     # 1. cast to int32 for accumulation
-    x_shifted = input_patch.astype(np.int32) - quant_params.z_in
-    w_shifted = weights.astype(np.int32) - quant_params.z_w
+    x_shifted = input_patch.astype(np.int32) - z_in
+    w_shifted = weights.astype(np.int32) - z_w
     
     # 2. perform convolution in int32
     C_in, H_in, W_in = input_patch.shape
@@ -111,21 +124,42 @@ def quantized_conv2d(input_patch: np.ndarray, weights: np.ndarray, bias: np.ndar
                 patch_flat = patch.flatten()
                 acc[:, i, j] = weights_flat @ patch_flat + bias.astype(np.int32)
     # 3. requantize
-    output = requantize(acc, quant_params.m, quant_params.z_out, True)
+    output = requantize(acc, quant_params.m, quant_params.z_out)
     return output
 
 def quantized_linear(input_vec: np.ndarray, weights: np.ndarray, bias: np.ndarray, quant_params: QuantParams) -> np.ndarray:
     """ quantized fully connected layer """
+    z_in = quant_params.z_in
+    z_w = quant_params.z_w
+    if isinstance(z_w, np.ndarray):
+        z_w = z_w.reshape(-1, 1) # Reshape for broadcasting if per-channel
+
     # 1. cast to int32 for accumulation
-    x_shifted = input_vec.astype(np.int32) - quant_params.z_in
-    w_shifted = weights.astype(np.int32) - quant_params.z_w
+    x_shifted = input_vec.astype(np.int32) - z_in
+    w_shifted = weights.astype(np.int32) - z_w
 
     # 2. perform linear in int32
     acc = w_shifted @ x_shifted + bias.astype(np.int32)
 
     # 3. requantize
-    output = requantize(acc, quant_params.m, quant_params.z_out, True)
+    output = requantize(acc, quant_params.m, quant_params.z_out)
     return output
 
 
+def requantize(acc_int32: np.ndarray, m, z_out: int) -> np.ndarray:
+    """
+    Support Per-Channel Requantization
+    m: either float (scalar) or np.ndarray (vector, shape=(C_out,))
+    acc_int32: shape=(C_out, H, W)
+    """
+    # if m is ndarray，Reshape to (C_out, 1, 1) for broadcast
+    if isinstance(m, np.ndarray) and m.ndim == 1:
+        if acc_int32.ndim == 3: # Conv Output: (C, H, W)
+            m = m.reshape(-1, 1, 1) # m shape: (C, 1, 1)
+        # elif acc_int32.ndim == 1: # Linear Output: (C)
+            # pass # automatic broadcast
             
+    acc_float = acc_int32.astype(np.float32) * m
+    q_out = np.round(acc_float) + z_out
+    return np.clip(q_out, 0, 255).astype(np.uint8)
+

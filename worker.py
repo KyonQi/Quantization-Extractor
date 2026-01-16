@@ -4,7 +4,7 @@ import time
 import queue
 from typing import List, Dict, Tuple, Any
 
-from protocol import MessageType, TaskPayload, ResultPayload, LayerConfig, LayerType
+from protocol.protocol import MessageType, TaskPayload, ResultPayload, LayerConfig, LayerType
 from operations import pad_input, relu6, numpy_conv2d, numpy_linear, quantized_conv2d, quantized_linear
 
 class Worker(multiprocessing.Process):
@@ -62,7 +62,7 @@ class QuantWorker(multiprocessing.Process):
         self.result_queue = result_queue
     
     def run(self) -> None:
-        print(f"[Worker {self.worker_id}] Starting quant worker process.")
+        # print(f"[Worker {self.worker_id}] Starting quant worker process.")
         while True:
             try:
                 msg = self.task_queue.get(timeout=1) # wait for a task
@@ -83,12 +83,12 @@ class QuantWorker(multiprocessing.Process):
                     out = quantized_conv2d(task.input_patch, task.weights, 
                                            task.bias, task.layer_config.stride,
                                            task.layer_config.groups, task.quant_params)
-                    name = task.layer_config.name
-                    if "proj" not in name and "fc" not in name:
-                        s_out = task.quant_params.s_out
-                        z_out = task.quant_params.z_out
-                        q_6 = np.clip(round(6.0 / s_out + z_out), 0, 255)
-                        out = np.minimum(out, q_6).astype(np.uint8) ## ????
+                    # name = task.layer_config.name
+                    # if "proj" not in name and "fc" not in name:
+                    #     s_out = task.quant_params.s_out
+                    #     z_out = task.quant_params.z_out
+                    #     q_6 = np.clip(round(6.0 / s_out + z_out), 0, 255)
+                    #     out = np.minimum(out, q_6).astype(np.uint8) ## ????
             
                 duration = time.time() - start_t
                 res = ResultPayload(
@@ -100,7 +100,7 @@ class QuantWorker(multiprocessing.Process):
                 self.result_queue.put((MessageType.RESULT, res))
 
             elif type_ == MessageType.TERMINATE:
-                print(f"[Worker {self.worker_id}] Terminating quant worker process.")
+                # print(f"[Worker {self.worker_id}] Terminating quant worker process.")
                 break
 
         
