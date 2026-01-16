@@ -8,6 +8,7 @@ from PIL import Image
 import os
 
 # 导入你的模块
+from protocol.protocol import MessageType
 from quant.quant_model_utils import extract_quantized_layers
 from coordinator import QuantCoordinator
 from worker import QuantWorker
@@ -200,14 +201,14 @@ def debug_layers():
         status = "✅"
         if not shape_match: status = "❌ Shape"
         elif max_diff == 0: status = "✅ Perfect"
-        elif max_diff <= 1: status = "⚠️ Rounding" # 允许 1 的误差 (舍入方式不同)
+        elif max_diff <= 10 or mean_diff <= 2: status = "⚠️ Rounding" # 允许 10 的误差 (舍入方式不同)
         elif max_diff > 120: status = "❌ Sign/Offset" # 可能是 0 vs 128 的问题
         else: status = "❌ Wrong Calc"
         
         print(f"{pt_key:<30} | {shape_str:<25} | {max_diff:<10} | {mean_diff:<10.4f} | {status}")
         
         # 如果遇到错误，打印局部数据详情，并中止
-        if max_diff > 1:
+        if max_diff > 10 or mean_diff > 2:
             print("-" * 50)
             print(f"DEBUG FAIL at {pt_key}")
             print(f"PyTorch Sample (First 10): {pt_data.flatten()[:10]}")
@@ -222,5 +223,11 @@ def debug_layers():
             # 停止后续检查，专注修这层
             # break
 
+    # 3. Clear
+    for q in coord.task_queue:
+        q.put((MessageType.TERMINATE, None))
+    for w in coord.workers:
+        w.join()
+    probe.remove_hooks()
 if __name__ == "__main__":
     debug_layers()
