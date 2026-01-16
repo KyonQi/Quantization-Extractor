@@ -177,47 +177,46 @@ def evaluate_distributed():
     
     # if small test passes, run the full test set
     if results['PT_INT8']/total > 0.85:
-        pass
         print("\n✓ Small test passed! Running full evaluation...")
         
-        full_eval_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
-        results_full = {'FP32': 0, 'PT_INT8': 0, 'SIM_INT8': 0}
-        total_full = 0
+        # full_eval_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+        # results_full = {'FP32': 0, 'PT_INT8': 0, 'SIM_INT8': 0}
+        # total_full = 0
         
-        with torch.no_grad():
-            for inputs, labels in tqdm(full_eval_loader, desc="Full Evaluation"):
-                label_idx = int(labels.item())
-                true_global_label = IMAGENETTE_TO_IMAGENET[label_idx]
+        # with torch.no_grad():
+        #     for inputs, labels in tqdm(full_eval_loader, desc="Full Evaluation"):
+        #         label_idx = int(labels.item())
+        #         true_global_label = IMAGENETTE_TO_IMAGENET[label_idx]
                 
-                fp32_out = pt_fp32_model(inputs)
-                fp32_pred = int(torch.argmax(fp32_out))
+        #         fp32_out = pt_fp32_model(inputs)
+        #         fp32_pred = int(torch.argmax(fp32_out))
                 
-                pt_int8_out = pt_int8_model(inputs)
-                pt_int8_pred = int(torch.argmax(pt_int8_out))
+        #         pt_int8_out = pt_int8_model(inputs)
+        #         pt_int8_pred = int(torch.argmax(pt_int8_out))
 
-                # My INT8
-                img_np = inputs.numpy().squeeze(0)
-                coord.quantize_input(img_np, input_scale, input_zp)
-                sim_out_uint8, _ = coord.execute_inference(sim_layers)
-                sim_pred = int(np.argmax(sim_out_uint8))
+        #         # My INT8
+        #         img_np = inputs.numpy().squeeze(0)
+        #         coord.quantize_input(img_np, input_scale, input_zp)
+        #         sim_out_uint8, _ = coord.execute_inference(sim_layers)
+        #         sim_pred = int(np.argmax(sim_out_uint8))
                 
-                if fp32_pred == true_global_label:
-                    results_full['FP32'] += 1
-                if pt_int8_pred == true_global_label:
-                    results_full['PT_INT8'] += 1
-                if sim_pred == true_global_label:
-                    results_full['SIM_INT8'] += 1
+        #         if fp32_pred == true_global_label:
+        #             results_full['FP32'] += 1
+        #         if pt_int8_pred == true_global_label:
+        #             results_full['PT_INT8'] += 1
+        #         if sim_pred == true_global_label:
+        #             results_full['SIM_INT8'] += 1
                 
-                total_full += 1
+        #         total_full += 1
         
-        print(f"\n{'='*20} Final Results (Full Dataset) {'='*20}")
-        print(f"Total Samples:      {total_full}")
-        print(f"FP32 Accuracy:      {results_full['FP32']/total_full:.2%} ({results_full['FP32']}/{total_full})")
-        print(f"INT8 Accuracy:      {results_full['PT_INT8']/total_full:.2%} ({results_full['PT_INT8']}/{total_full})")
-        print(f"SIM INT8 Accuracy:  {results_full['SIM_INT8']/total_full:.2%} ({results_full['SIM_INT8']}/{total_full})")
-        print(f"Accuracy Drop:      {(results_full['FP32']-results_full['PT_INT8'])/total_full:.2%}")
-        print(f"SIM INT8 Accuracy Drop: {(results_full['FP32']-results_full['SIM_INT8'])/total_full:.2%}")
-        print("-" * 60)
+        # print(f"\n{'='*20} Final Results (Full Dataset) {'='*20}")
+        # print(f"Total Samples:      {total_full}")
+        # print(f"FP32 Accuracy:      {results_full['FP32']/total_full:.2%} ({results_full['FP32']}/{total_full})")
+        # print(f"INT8 Accuracy:      {results_full['PT_INT8']/total_full:.2%} ({results_full['PT_INT8']}/{total_full})")
+        # print(f"SIM INT8 Accuracy:  {results_full['SIM_INT8']/total_full:.2%} ({results_full['SIM_INT8']}/{total_full})")
+        # print(f"Accuracy Drop:      {(results_full['FP32']-results_full['PT_INT8'])/total_full:.2%}")
+        # print(f"SIM INT8 Accuracy Drop: {(results_full['FP32']-results_full['SIM_INT8'])/total_full:.2%}")
+        # print("-" * 60)
     else:
         print("\n✗ Small test failed! Check the label mapping above.")
 

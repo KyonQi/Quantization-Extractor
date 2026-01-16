@@ -1,5 +1,6 @@
 """ Calculating operations for simulation """
 import numpy as np
+from numba import njit
 
 from protocol.protocol import QuantParams
 
@@ -82,87 +83,135 @@ def quantized_pad_input(x: np.ndarray, padding: int, z_in: int) -> np.ndarray:
     # x: (C, H, W) -> Pad H and W dimension with 0
     return np.pad(x, ((0, 0), (padding, padding), (padding, padding)), mode='constant', constant_values=z_in)
 
-def quantized_conv2d(input_patch: np.ndarray, weights: np.ndarray, bias: np.ndarray,
-                     stride: int, groups: int, quant_params: QuantParams) -> np.ndarray:
-    """ Quantized convolution operation """
+@njit(fastmath=True, cache=True)
+def requantize(acc_int32: np.ndarray, m, z_out: int) -> np.ndarray:
+    acc_float = acc_int32.astype(np.float32) * m
+    q_out = np.round(acc_float) + z_out
+    return np.minimum(np.maximum(q_out, 0), 255).astype(np.uint8)
 
-    z_in = int(quant_params.z_in)
-    z_w = quant_params.z_w
-    if isinstance(z_w, np.ndarray):
-        z_w = z_w.astype(np.int32).reshape(-1, 1, 1, 1)  # Reshape for broadcasting if per-channel
-
-    # 1. cast to int32 for accumulation
+@njit(fastmath=True, cache=True) # 去掉 parallel=True，使用 cache=True
+def _quantized_conv2d_jit(input_patch: np.ndarray, weights: np.ndarray, bias_int32: np.ndarray,
+                          stride: int, groups: int, z_in: int, z_w, m, z_out: int) -> np.ndarray:
+    
+    # 1. 预处理：只做一次大的类型转换，绝对不要在循环里做
     x_shifted = input_patch.astype(np.int32) - z_in
     w_shifted = weights.astype(np.int32) - z_w
     
-    # 2. perform convolution in int32
     C_in, H_in, W_in = input_patch.shape
     C_out, _, K, _ = weights.shape
     
     H_out = (H_in - K) // stride + 1
     W_out = (W_in - K) // stride + 1
     
-    # Accumulator
     acc = np.zeros((C_out, H_out, W_out), dtype=np.int32)
+
     # === Depthwise Convolution ===
     if groups == C_in and C_in == C_out:
         for c in range(C_in):
-            w_k = w_shifted[c, 0] # (K, K)
-            b_k = bias[c].astype(np.int32)
+            # 取出标量 bias
+            b_val = bias_int32[c]
+            # 这里的 w_k 是 (K, K)
+            # 优化：不提取 w_k 子矩阵，直接用索引访问 w_shifted
+            
             for i in range(H_out):
                 for j in range(W_out):
-                    h_s, w_s = i * stride, j * stride
-                    patch = x_shifted[c, h_s:h_s+K, w_s:w_s+K]
-                    acc[c, i, j] = np.sum(patch * w_k) + b_k
-    # === Pointwise or Standard Convolution ===
+                    h_s = i * stride
+                    w_s = j * stride
+                    
+                    # 纯标量累加，寄存器级速度
+                    val = 0
+                    for ky in range(K):
+                        for kx in range(K):
+                            # 直接索引，无切片开销
+                            val += x_shifted[c, h_s + ky, w_s + kx] * w_shifted[c, 0, ky, kx]
+                    
+                    acc[c, i, j] = val + b_val
+
+    # === Standard Convolution (Groups=1) ===
     else:
-        weights_flat = w_shifted.reshape(C_out, -1) # (C_out, C_in/groups * K * K)
+        # 即使是标准卷积，也展开为纯循环
+        # 这种写法 Numba 会自动进行 SIMD 向量化优化
         for i in range(H_out):
             for j in range(W_out):
-                h_s, w_s = i * stride, j * stride
-                patch = x_shifted[:, h_s:h_s+K, w_s:w_s+K].reshape(-1) # (C_in * K * K, 1)
-                patch_flat = patch.flatten()
-                acc[:, i, j] = weights_flat @ patch_flat + bias.astype(np.int32)
-    # 3. requantize
-    output = requantize(acc, quant_params.m, quant_params.z_out)
-    return output
+                h_s = i * stride
+                w_s = j * stride
+                
+                for co in range(C_out):
+                    # 初始化累加器为 bias
+                    val = bias_int32[co]
+                    
+                    # 核心卷积循环：遍历输入通道和卷积核
+                    for ci in range(C_in):
+                        for ky in range(K):
+                            for kx in range(K):
+                                # 这里的访问模式对 CPU 缓存非常友好 (连续内存访问)
+                                # x: (C, H, W) -> W 维度连续
+                                # w: (Out, In, K, K) -> Kx 维度连续
+                                val += x_shifted[ci, h_s + ky, w_s + kx] * w_shifted[co, ci, ky, kx]
+                    
+                    acc[co, i, j] = val
 
-def quantized_linear(input_vec: np.ndarray, weights: np.ndarray, bias: np.ndarray, quant_params: QuantParams) -> np.ndarray:
-    """ quantized fully connected layer """
+    # 3. Requantize
+    return requantize(acc, m, z_out)
+
+
+def quantized_conv2d(input_patch: np.ndarray, weights: np.ndarray, bias: np.ndarray,
+                     stride: int, groups: int, quant_params) -> np.ndarray:
     z_in = int(quant_params.z_in)
+    z_out = int(quant_params.z_out)
+    bias_int32 = bias.astype(np.int32)
+    
     z_w = quant_params.z_w
+    m = quant_params.m
+    
+    # 维度处理保持不变
     if isinstance(z_w, np.ndarray):
-        z_w = z_w.reshape(-1, 1) # Reshape for broadcasting if per-channel
-
-    # 1. cast to int32 for accumulation
-    x_shifted = input_vec.astype(np.int32) - z_in
-    w_shifted = weights.astype(np.int32) - z_w
-
-    # 2. perform linear in int32
-    acc = w_shifted @ x_shifted + bias.astype(np.int32)
-
-    # 3. requantize
-    output = requantize(acc, quant_params.m, quant_params.z_out)
-    return output
-
-
-def requantize(acc_int32: np.ndarray, m, z_out: int) -> np.ndarray:
-    """
-    Support Per-Channel Requantization
-    m: either float (scalar) or np.ndarray (vector, shape=(C_out,))
-    acc_int32: shape=(C_out, H, W)
-    """
-    # if m is ndarray，Reshape to (C_out, 1, 1) for broadcast
-    if isinstance(m, np.ndarray) and m.ndim == 1:
-        m = m.astype(np.float32)
-        if acc_int32.ndim == 3: # Conv Output: (C, H, W)
-            m = m.reshape(-1, 1, 1) # m shape: (C, 1, 1)
+        z_w = z_w.astype(np.int32).reshape(-1, 1, 1, 1)
+    else:
+        z_w = int(z_w)
+        
+    if isinstance(m, np.ndarray):
+        m = m.astype(np.float32).reshape(-1, 1, 1)
     else:
         m = float(m)
-        # elif acc_int32.ndim == 1: # Linear Output: (C)
-            # pass # automatic broadcast
-            
-    acc_float = acc_int32.astype(np.float32) * m
-    q_out = np.round(acc_float) + z_out
-    return np.clip(q_out, 0, 255).astype(np.uint8)
+        
+    return _quantized_conv2d_jit(input_patch, weights, bias_int32, stride, groups, z_in, z_w, m, z_out)
+
+
+@njit(fastmath=True, cache=True) # 同样加上 cache=True
+def _quantized_linear_jit(input_vec: np.ndarray, weights: np.ndarray, bias_int32: np.ndarray,
+                          z_in: int, z_w, m, z_out: int) -> np.ndarray:
+    
+    x_shifted = input_vec.astype(np.int32) - z_in
+    w_shifted = weights.astype(np.int32) - z_w 
+
+    C_out, C_in = w_shifted.shape
+    acc = np.zeros(C_out, dtype=np.int32)
+    
+    for i in range(C_out):
+        val = 0
+        for j in range(C_in):
+            val += w_shifted[i, j] * x_shifted[j]
+        acc[i] = val + bias_int32[i]
+
+    return requantize(acc, m, z_out)
+
+def quantized_linear(input_vec: np.ndarray, weights: np.ndarray, bias: np.ndarray, quant_params) -> np.ndarray:
+    z_in = int(quant_params.z_in)
+    z_out = int(quant_params.z_out)
+    bias_int32 = bias.astype(np.int32)
+    z_w = quant_params.z_w
+    m = quant_params.m
+    
+    if isinstance(z_w, np.ndarray):
+        z_w = z_w.astype(np.int32).reshape(-1, 1)
+    else:
+        z_w = int(z_w)
+    
+    if isinstance(m, np.ndarray):
+        m = m.astype(np.float32).reshape(-1)
+    else:
+        m = float(m)
+    
+    return _quantized_linear_jit(input_vec, weights, bias_int32, z_in, z_w, m, z_out)
 
