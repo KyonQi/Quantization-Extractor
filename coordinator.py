@@ -208,7 +208,8 @@ class QuantCoordinator:
         if layer.residual_connect_from:
             target_s = qp_dict.get('residual_out_scale', s_out)
             target_z = qp_dict.get('residual_out_zp', z_out)
-            self._apply_residual(res_key=layer.residual_connect_from, curr_s=s_in, curr_z=z_in, target_s=target_s, target_z=target_z)
+            # 注意：此时 self.feature_map 已经是当前层的输出，应该使用 s_out 和 z_out
+            self._apply_residual(res_key=layer.residual_connect_from, curr_s=s_out, curr_z=z_out, target_s=target_s, target_z=target_z)
             
     def _distribute_linear(self, layer: LayerConfig, weights_q: np.ndarray, bias_q: np.ndarray, quant_params: QuantParams) -> None:
         input_vec = self.feature_map.flatten() # (C_in, )

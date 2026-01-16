@@ -86,10 +86,10 @@ def quantized_conv2d(input_patch: np.ndarray, weights: np.ndarray, bias: np.ndar
                      stride: int, groups: int, quant_params: QuantParams) -> np.ndarray:
     """ Quantized convolution operation """
 
-    z_in = quant_params.z_in
+    z_in = int(quant_params.z_in)
     z_w = quant_params.z_w
     if isinstance(z_w, np.ndarray):
-        z_w = z_w.reshape(-1, 1, 1, 1)  # Reshape for broadcasting if per-channel
+        z_w = z_w.astype(np.int32).reshape(-1, 1, 1, 1)  # Reshape for broadcasting if per-channel
 
     # 1. cast to int32 for accumulation
     x_shifted = input_patch.astype(np.int32) - z_in
@@ -129,7 +129,7 @@ def quantized_conv2d(input_patch: np.ndarray, weights: np.ndarray, bias: np.ndar
 
 def quantized_linear(input_vec: np.ndarray, weights: np.ndarray, bias: np.ndarray, quant_params: QuantParams) -> np.ndarray:
     """ quantized fully connected layer """
-    z_in = quant_params.z_in
+    z_in = int(quant_params.z_in)
     z_w = quant_params.z_w
     if isinstance(z_w, np.ndarray):
         z_w = z_w.reshape(-1, 1) # Reshape for broadcasting if per-channel
@@ -154,8 +154,11 @@ def requantize(acc_int32: np.ndarray, m, z_out: int) -> np.ndarray:
     """
     # if m is ndarray，Reshape to (C_out, 1, 1) for broadcast
     if isinstance(m, np.ndarray) and m.ndim == 1:
+        m = m.astype(np.float32)
         if acc_int32.ndim == 3: # Conv Output: (C, H, W)
             m = m.reshape(-1, 1, 1) # m shape: (C, 1, 1)
+    else:
+        m = float(m)
         # elif acc_int32.ndim == 1: # Linear Output: (C)
             # pass # automatic broadcast
             
