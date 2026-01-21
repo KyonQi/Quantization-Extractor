@@ -1,11 +1,13 @@
 import numpy as np
 import multiprocessing
 import json
+import time
 from typing import List, Dict, Tuple, Any
 
 from worker import Worker, QuantWorker
 from protocol.protocol import MessageType, TaskPayload, ResultPayload, LayerConfig, LayerType, QuantParams
 from operations import pad_input, relu6, numpy_conv2d, numpy_linear, quantized_pad_input
+from compression.compressors import Compressor, BitMapANSCompressor
 
 class Coordinator:
     def __init__(self, num_workers: int, input_shape: Tuple[int, int, int] = (3, 244, 244)) -> None:
@@ -153,6 +155,14 @@ class QuantCoordinator:
         self.feature_map: np.ndarray = None
         self.residual_buffer: Dict[str, Tuple[np.ndarray, float, int]] = {} # name -> (tensor, s, z)
 
+        self.compressor = BitMapANSCompressor()
+        self.stats = {
+            "total_inference_time": 0.0, # end to end time
+            "total_comm_volume": 0, # total communication volume in bytes
+            "total_codec_time": 0.0, # total time spent in compression/decompression
+            "total_compute_time": 0.0 # total time spent in computation
+        }
+
     def get_quant_params(self, layer_name: str) -> Tuple[float, int]:
         """ Get scale and zero point for a given layer """
         if layer_name not in self.q_params_dict:
@@ -167,6 +177,9 @@ class QuantCoordinator:
         self.feature_map = np.clip(np.round(img_float / s_in + z_in), 0, 255).astype(np.uint8)
 
     def execute_inference(self, layers: List[Tuple[LayerConfig, np.ndarray, np.ndarray, QuantParams]]) -> Tuple[np.ndarray, str]:
+        self.stats = {k: 0 for k in self.stats}
+        
+        start_time = time.perf_counter()
         self.workers = [QuantWorker(i, self.task_queue[i], self.result_queue) for i in range(self.num_workers)]
         for w in self.workers:
             w.start()
@@ -181,6 +194,8 @@ class QuantCoordinator:
                 q.put((MessageType.TERMINATE, None))
             for w in self.workers:
                 w.join()
+        self.stats["total_inference_time"] = time.perf_counter() - start_time
+        print(self.stats["total_inference_time"])
         return self.feature_map, last_layer_name
         
     def _run_layer(self, layer: LayerConfig, weights: np.ndarray, bias: np.ndarray, qp_dict: dict) -> None:
@@ -208,7 +223,6 @@ class QuantCoordinator:
         if layer.residual_connect_from:
             target_s = qp_dict.get('residual_out_scale', s_out)
             target_z = qp_dict.get('residual_out_zp', z_out)
-            # 注意：此时 self.feature_map 已经是当前层的输出，应该使用 s_out 和 z_out
             self._apply_residual(res_key=layer.residual_connect_from, curr_s=s_out, curr_z=z_out, target_s=target_s, target_z=target_z)
             
     def _distribute_linear(self, layer: LayerConfig, weights_q: np.ndarray, bias_q: np.ndarray, quant_params: QuantParams) -> None:
@@ -216,7 +230,11 @@ class QuantCoordinator:
         total_classes = layer.out_channels
         classes_per_worker = int(np.ceil(total_classes / self.num_workers))
         active_workers = 0
-        
+
+        t0 = time.perf_counter()
+        input_vec_compressed = self.compressor.compress(input_vec)
+        self.stats["total_codec_time"] += (time.perf_counter() - t0)
+
         for i in range(self.num_workers):
             start_cls = i * classes_per_worker
             end_cls = min(start_cls + classes_per_worker, total_classes)
@@ -242,10 +260,14 @@ class QuantCoordinator:
                 z_w=zw_chunk,
                 m=m_chunk
             )
+
+            self.stats["total_comm_volume"] += len(input_vec_compressed)
+
             task = TaskPayload(
                 layer_config=layer,
                 slice_idx=(start_cls, end_cls),
                 input_patch=input_vec,
+                input_patch_compressed=input_vec_compressed,
                 weights=w_chunk,
                 bias=b_chunk,
                 quant_params=task_qp
@@ -259,8 +281,17 @@ class QuantCoordinator:
             type_, res = self.result_queue.get()
             if type_ == MessageType.RESULT:
                 res: ResultPayload = res
+
+                self.stats["total_comm_volume"] += len(res.output_patch_compressed)
+                self.stats["total_codec_time"] += res.codec_time
+                self.stats["total_compute_time"] += res.compute_time
+
                 start_cls, end_cls = res.slice_idx
-                final_logits[start_cls:end_cls] = res.output_patch
+                # final_logits[start_cls:end_cls] = res.output_patch
+                t1 = time.perf_counter()
+                output_decompressed = self.compressor.decompress(res.output_patch_compressed)
+                self.stats["total_codec_time"] += (time.perf_counter() - t1)
+                final_logits[start_cls:end_cls] = output_decompressed                
                 collected += 1
             else:
                 raise ValueError("Unexpected message type from worker")
@@ -289,11 +320,16 @@ class QuantCoordinator:
             in_start_y = start_row * layer.stride
             in_end_y = (end_row - 1) * layer.stride + layer.kernel_size
             input_patch = padded_input[:, in_start_y:in_end_y, :]
+            t0 = time.perf_counter()
+            input_patch_compressed = self.compressor.compress(input_patch)
+            self.stats["total_codec_time"] += (time.perf_counter() - t0)
+            self.stats["total_comm_volume"] += len(input_patch_compressed)
 
             task = TaskPayload(
                 layer_config=layer,
                 slice_idx=(start_row, end_row),
                 input_patch=input_patch,
+                input_patch_compressed=input_patch_compressed,
                 weights=weights_q,
                 bias=bias_q,
                 quant_params=quant_params
@@ -308,8 +344,19 @@ class QuantCoordinator:
             type_, res = self.result_queue.get()
             if type_ == MessageType.RESULT:
                 res: ResultPayload = res
+                
+                self.stats["total_comm_volume"] += len(res.output_patch_compressed)
+                self.stats["total_codec_time"] += res.codec_time
+                self.stats["total_compute_time"] += res.compute_time
+
                 start_row, end_row = res.slice_idx
-                new_map[:, start_row:end_row, :] = res.output_patch
+                # new_map[:, start_row:end_row, :] = res.output_patch
+                
+                t1 = time.perf_counter()
+                decompressed_patch= self.compressor.decompress(res.output_patch_compressed)
+                self.stats["total_codec_time"] += (time.perf_counter() - t1)
+
+                new_map[:, start_row:end_row, :] = decompressed_patch
                 collected += 1
             else:
                 raise ValueError("Unexpected message type from worker")
