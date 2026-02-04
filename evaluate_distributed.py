@@ -104,7 +104,7 @@ def evaluate_distributed():
     # small sample
     eval_subset = torch.utils.data.Subset(
         val_dataset, 
-        indices=torch.arange(1)
+        indices=torch.arange(100)
     )
     eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False)
     
@@ -167,16 +167,16 @@ def evaluate_distributed():
             
             total += 1
 
-            print("="*40)
-            print("Performance Report (Per Image)")
-            print("="*40)
-            print(f"Total Inference Time: {coord.stats['total_inference_time']:.4f} s")
-            print(f"  - Compute Time:     {coord.stats['total_compute_time']:.4f} s")
-            print(f"  - Codec Time:       {coord.stats['total_codec_time']:.4f} s")
-            print(f"  - Overhead/Other:   {coord.stats['total_inference_time'] - (coord.stats['total_compute_time'] + coord.stats['total_codec_time']) / coord.num_workers:.4f} s")
-            print("-" * 40)
-            print(f"Total Data Transfer:  {coord.stats['total_comm_volume'] / 1024 / coord.num_workers:.2f} KB")
-            print("="*40)
+        print("="*40)
+        print("Performance Report (Per Image)")
+        print("="*40)
+        print(f"Total Inference Time: {coord.stats['total_inference_time'] / total:.4f} s")
+        print(f"  - Compute Time:     {coord.stats['total_compute_time'] / total / coord.num_workers:.4f} s")
+        print(f"  - Codec Time:       {coord.stats['total_codec_time'] / total / coord.num_workers:.4f} s")
+        print(f"  - Overhead/Other:   {(coord.stats['total_inference_time'] - (coord.stats['total_compute_time'] + coord.stats['total_codec_time']) / coord.num_workers ) / (total):.4f} s")
+        print("-" * 40)
+        print(f"Total Data Transfer:  {coord.stats['total_comm_volume'] / 1024 / total / coord.num_workers:.2f} KB")
+        print("="*40)
     
     print(f"\n{'='*25} Results (100 samples) {'='*25}")
     print(f"Total Samples:      {total}")

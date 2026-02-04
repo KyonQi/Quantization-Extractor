@@ -123,7 +123,7 @@ def _quantized_conv2d_jit(input_patch: np.ndarray, weights: np.ndarray, bias_int
                     for ky in range(K):
                         for kx in range(K):
                             # 直接索引，无切片开销
-                            val += x_shifted[c, h_s + ky, w_s + kx] * w_shifted[c, 0, ky, kx]
+                            val += x_shifted[c, h_s + ky, w_s + kx] * w_shifted[c, 0, ky, kx] # w_shifted shape (C_out, C_in/groups, K, K)
                     
                     acc[c, i, j] = val + b_val
 

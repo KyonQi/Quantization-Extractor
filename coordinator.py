@@ -177,7 +177,7 @@ class QuantCoordinator:
         self.feature_map = np.clip(np.round(img_float / s_in + z_in), 0, 255).astype(np.uint8)
 
     def execute_inference(self, layers: List[Tuple[LayerConfig, np.ndarray, np.ndarray, QuantParams]]) -> Tuple[np.ndarray, str]:
-        self.stats = {k: 0 for k in self.stats}
+        # self.stats = {k: 0 for k in self.stats}
         
         start_time = time.perf_counter()
         self.workers = [QuantWorker(i, self.task_queue[i], self.result_queue) for i in range(self.num_workers)]
@@ -194,8 +194,7 @@ class QuantCoordinator:
                 q.put((MessageType.TERMINATE, None))
             for w in self.workers:
                 w.join()
-        self.stats["total_inference_time"] = time.perf_counter() - start_time
-        print(self.stats["total_inference_time"])
+        self.stats["total_inference_time"] += time.perf_counter() - start_time
         return self.feature_map, last_layer_name
         
     def _run_layer(self, layer: LayerConfig, weights: np.ndarray, bias: np.ndarray, qp_dict: dict) -> None:
