@@ -38,7 +38,7 @@ class Exporter:
                 total_weights_size += weights_size
                 f.write(f"// Layer {idx}: {layer_name}\n")
                 # f.write(f"// Weights: scale={weight_scale}, zero_point={weight_zp}\n")
-                f.write(f"const int8_t {layer_name}_weights[] = {{\n")
+                f.write(f"const int8_t {layer_name}_weights[] PROGMEM = {{\n")
                 for i in range(0, len(weights_flattened), 16):
                     line = ', '.join(str(x) for x in weights_flattened[i:i+16])
                     f.write(f"    {line},\n")
@@ -46,7 +46,7 @@ class Exporter:
 
                 bias_size = len(b_int32)
                 total_bias_size += bias_size
-                f.write(f"const int32_t {layer_name}_bias[] = {{\n")
+                f.write(f"const int32_t {layer_name}_bias[] PROGMEM = {{\n")
                 for i in range(0, len(b_int32), 16):
                     line = ', '.join(str(x) for x in b_int32[i:i+16])
                     f.write(f"    {line},\n")
@@ -79,8 +79,8 @@ class Exporter:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export quantized weights from PyTorch INT8 model")
-    parser.add_argument('--output-dir', type=str, default='../../PlatformIO_MCU/Download/include', help='Output directory for header files')
-    parser.add_argument('--model-path', type=str, default='../models/mobilenet_v2_quantized.pth', help='Path to quantized model')
+    parser.add_argument('--output-dir', type=str, default='../PlatformIO_MCU/Download/include', help='Output directory for header files')
+    parser.add_argument('--model-path', type=str, default='./models/mobilenet_v2_quantized.pth', help='Path to quantized model')
 
     args = parser.parse_args()
     # load the quantized model
