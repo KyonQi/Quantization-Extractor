@@ -6,14 +6,14 @@ import numpy as np
 import torchvision.models as models
 from quant.quant_model_utils import extract_quantized_layers
 from models.utils import get_pytorch_quantized_model
-from protocol.protocol import LayerConfig
+from protocol.protocol import LayerConfig, LayerType
 
 
 class Exporter:
-    def __init__(self):
-        pass
-    
-    def export_weights(self, sim_layers: list[tuple[LayerConfig, np.ndarray, np.ndarray, dict]], output_path):
+    def __init__(self, num_mcus=1):
+        self.num_mcus = num_mcus
+        
+    def export_weights(self, sim_layers: list[tuple[LayerConfig, np.ndarray, np.ndarray, dict]], output_path, mcu_id: int):
         """ This function export the weights and bias into a C header file for MCU usage. """
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -33,24 +33,33 @@ class Exporter:
             for idx, (layer_cfg, w_int8, b_int32, qp_dict) in enumerate(sim_layers):
                 layer_name = layer_cfg.name
 
-                weights_flattened = w_int8.flatten()
+                if layer_cfg.type == LayerType.LINEAR:
+                    # for linear layers, weights and bias are partitioned by colomn-wise
+                    # which means each MCU contains (output_channels / num_mcus) columns of weights and the corresponding bias
+                    out_ch_per_mcu = layer_cfg.out_channels // self.num_mcus
+                    start_ch = mcu_id * out_ch_per_mcu
+                    end_ch = min(start_ch + out_ch_per_mcu, layer_cfg.out_channels)
+                    w_local = w_int8[start_ch:end_ch, :]
+                    b_local = b_int32[start_ch:end_ch]
+                else:
+                    w_local = w_int8
+                    b_local = b_int32
+                    
+                weights_flattened = w_local.flatten()
                 weights_size = len(weights_flattened)
                 total_weights_size += weights_size
                 f.write(f"// Layer {idx}: {layer_name}\n")
-                # f.write(f"// Weights: scale={weight_scale}, zero_point={weight_zp}\n")
                 f.write(f"const int8_t {layer_name}_weights[] PROGMEM = {{\n")
-                # f.write(f"const int8_t {layer_name}_weights[] = {{\n")
                 for i in range(0, len(weights_flattened), 16):
                     line = ', '.join(str(x) for x in weights_flattened[i:i+16])
                     f.write(f"    {line},\n")
                 f.write("};\n\n")
 
-                bias_size = len(b_int32)
+                bias_size = len(b_local)
                 total_bias_size += bias_size
                 f.write(f"const int32_t {layer_name}_bias[] PROGMEM = {{\n")
-                # f.write(f"const int32_t {layer_name}_bias[] = {{\n")
-                for i in range(0, len(b_int32), 16):
-                    line = ', '.join(str(x) for x in b_int32[i:i+16])
+                for i in range(0, len(b_local), 16):
+                    line = ', '.join(str(x) for x in b_local[i:i+16])
                     f.write(f"    {line},\n")
                 f.write("};\n\n")
             
@@ -109,7 +118,7 @@ class Exporter:
         print(f"Exported layer configuration to {config_file}")
         return config_file
     
-    def export_quant_params(self, sim_layers: list[tuple[LayerConfig, np.ndarray, np.ndarray, dict]], output_path):
+    def export_quant_params(self, sim_layers: list[tuple[LayerConfig, np.ndarray, np.ndarray, dict]], output_path, mcu_id: int):
         """ This function export the quantization parameters into a C header file for MCU usage. """
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -129,8 +138,20 @@ class Exporter:
                 #     )
             for idx, (layer_cfg, _, _, qp_dict) in enumerate(sim_layers):
                 layer_name = layer_cfg.name
-                weight_scale = qp_dict['s_w']
-                weight_zp = qp_dict['z_w']
+                if layer_cfg.type == LayerType.LINEAR:
+                    # for linear layers, weights and bias are partitioned by colomn-wise
+                    # which means each MCU contains (output_channels / num_mcus) columns of weights and the corresponding bias
+                    out_ch_per_mcu = layer_cfg.out_channels // self.num_mcus
+                    start_ch = mcu_id * out_ch_per_mcu
+                    end_ch = min(start_ch + out_ch_per_mcu, layer_cfg.out_channels)
+                    weight_scale = qp_dict['s_w'][start_ch:end_ch]
+                    weight_zp = qp_dict['z_w'][start_ch:end_ch]
+                else:
+                    weight_scale = qp_dict['s_w']
+                    weight_zp = qp_dict['z_w']
+
+                # weight_scale = qp_dict['s_w']
+                # weight_zp = qp_dict['z_w']
                 
                 # check if it is per-channel
                 if isinstance(weight_scale, np.ndarray):
@@ -162,8 +183,18 @@ class Exporter:
             f.write("const struct QuantParams model_quant_params[] = {\n")
             for idx, (layer_cfg, _, _, qp_dict) in enumerate(sim_layers):
                 layer_name = layer_cfg.name
-                weight_scale = qp_dict['s_w']
-                weight_zp = qp_dict['z_w']
+                if layer_cfg.type == LayerType.LINEAR:
+                    out_ch_per_mcu = layer_cfg.out_channels // self.num_mcus
+                    start_ch = mcu_id * out_ch_per_mcu
+                    end_ch = min(start_ch + out_ch_per_mcu, layer_cfg.out_channels)
+                    weight_scale = qp_dict['s_w'][start_ch:end_ch]
+                    weight_zp = qp_dict['z_w'][start_ch:end_ch]
+                else:
+                    weight_scale = qp_dict['s_w']
+                    weight_zp = qp_dict['z_w']
+
+                # weight_scale = qp_dict['s_w']
+                # weight_zp = qp_dict['z_w']
                 input_scale = qp_dict['s_in']
                 input_zp = qp_dict['z_in']
                 output_scale = qp_dict['s_out']
@@ -187,17 +218,21 @@ class Exporter:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export quantized weights from PyTorch INT8 model")
+    parser.add_argument('--num-mcus', type=int, default=1, help='Number of MCUs for partitioning the weights (default: 1)')
     parser.add_argument('--output-dir', type=str, default='../PlatformIO_MCU/Download/include', help='Output directory for header files')
     parser.add_argument('--model-path', type=str, default='./models/mobilenet_v2_quantized.pth', help='Path to quantized model')
 
     args = parser.parse_args()
+    num_mcus = args.num_mcus
     # load the quantized model
     q_model = get_pytorch_quantized_model(train_loader=None)
     q_model.eval()
 
     sim_layers = extract_quantized_layers(q_model)
 
-    exporter = Exporter()
-    exporter.export_weights(sim_layers=sim_layers, output_path=args.output_dir)
-    exporter.export_layer_config(sim_layers=sim_layers, output_path=args.output_dir)
-    exporter.export_quant_params(sim_layers=sim_layers, output_path=args.output_dir)
+    exporter = Exporter(num_mcus=num_mcus)
+    for worker_id in range(num_mcus):
+        output_path = args.output_dir + f"/mcu_{worker_id}"
+        exporter.export_weights(sim_layers=sim_layers, output_path=output_path, mcu_id=worker_id)
+        exporter.export_layer_config(sim_layers=sim_layers, output_path=output_path)
+        exporter.export_quant_params(sim_layers=sim_layers, output_path=output_path, mcu_id=worker_id)
