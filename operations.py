@@ -86,7 +86,8 @@ def quantized_pad_input(x: np.ndarray, padding: int, z_in: int) -> np.ndarray:
 @njit(fastmath=True, cache=True)
 def requantize(acc_int32: np.ndarray, m, z_out: int) -> np.ndarray:
     acc_float = acc_int32.astype(np.float32) * m
-    q_out = np.round(acc_float) + z_out
+    # q_out = np.round(acc_float) + z_out
+    q_out = np.round(acc_float + z_out)
     return np.minimum(np.maximum(q_out, 0), 255).astype(np.uint8)
 
 @njit(fastmath=True, cache=True) # 去掉 parallel=True，使用 cache=True

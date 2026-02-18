@@ -49,8 +49,8 @@ def extract_conv_params(q_layer, s_in, z_in):
 # TODO check how to extract the residual layer quant params
 def extract_quantized_layers(q_model):
     """
-    主函数：解析 QuantizableMobileNetV2
-    返回: list of (LayerConfig, weights_int8, bias_int32, qp_dict)
+    Parse QuantizableMobileNetV2
+    Return: list of (LayerConfig, weights_int8, bias_int32, qp_dict)
     """
     sim_layers = []
     
