@@ -22,7 +22,7 @@ def prepocess_image(image_path: str) -> np.ndarray:
 
 
 def save_hex_dump(arr: np.ndarray, path: str):
-    """每行16字节，左侧偏移量，右侧ASCII，类似 xxd 风格"""
+    """Save a 2D uint8 array to a text file in a hex dump format"""
     flat = arr.flatten()
     with open(path, 'w') as f:
         f.write(f"# shape: {arr.shape}  dtype: {arr.dtype}  total: {flat.size} bytes\n")
