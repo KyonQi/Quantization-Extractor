@@ -20,18 +20,21 @@ def layer_config_to_dict(layer_config: LayerConfig) -> dict:
 
     }
 
-def quant_params_to_dict(quant_params: QuantParams) -> dict:
+def quant_params_to_dict(quant_params: dict) -> dict:
+    m = quant_params.get("m", quant_params["s_in"] * quant_params["s_w"] / quant_params["s_out"])
     return {
-        "s_in": quant_params.s_in,
-        "z_in": quant_params.z_in,
-        "s_w": quant_params.s_w.tolist() if isinstance(quant_params.s_w, np.ndarray) else quant_params.s_w,
-        "z_w": quant_params.z_w.tolist() if isinstance(quant_params.z_w, np.ndarray) else quant_params.z_w,
-        "s_out": quant_params.s_out,
-        "z_out": quant_params.z_out,
-        "m": quant_params.m.tolist() if isinstance(quant_params.m, np.ndarray) else quant_params.m
+        "s_in": quant_params["s_in"],
+        "z_in": quant_params["z_in"],
+        "s_w": quant_params["s_w"].tolist() if isinstance(quant_params["s_w"], np.ndarray) else quant_params["s_w"],
+        "z_w": quant_params["z_w"].tolist() if isinstance(quant_params["z_w"], np.ndarray) else quant_params["z_w"],
+        "s_out": quant_params["s_out"],
+        "z_out": quant_params["z_out"],
+        "m": m.tolist() if isinstance(m, np.ndarray) else m,
+        "s_residual_out": quant_params.get("residual_out_scale", None),
+        "z_residual_out": quant_params.get("residual_out_zp", None)
     }
 
-def save_model_config(layers: list[LayerConfig], quant_params: list[QuantParams], output_path: str):
+def save_model_config(layers: list[LayerConfig], quant_params: list[dict], output_path: str):
     if len(layers) != len(quant_params):
         raise ValueError("Layers and quant_params must have the same length")
     
@@ -63,16 +66,17 @@ def main():
     
     for cfg, weights, bias, qp_dict in sim_layers:
         layer_configs.append(cfg)
-        qp = QuantParams(
-            s_in=qp_dict["s_in"],
-            z_in=qp_dict["z_in"],
-            s_w=qp_dict["s_w"],
-            z_w=qp_dict["z_w"],
-            s_out=qp_dict["s_out"],
-            z_out=qp_dict["z_out"],
-            m=qp_dict.get("m", qp_dict["s_in"] * qp_dict["s_w"] / qp_dict["s_out"])
-        )
-        quant_params.append(qp)
+        quant_params.append(qp_dict)
+        # qp = QuantParams(
+        #     s_in=qp_dict["s_in"],
+        #     z_in=qp_dict["z_in"],
+        #     s_w=qp_dict["s_w"],
+        #     z_w=qp_dict["z_w"],
+        #     s_out=qp_dict["s_out"],
+        #     z_out=qp_dict["z_out"],
+        #     m=qp_dict.get("m", qp_dict["s_in"] * qp_dict["s_w"] / qp_dict["s_out"])
+        # )
+        # quant_params.append(qp)
     save_model_config(layers=layer_configs, quant_params=quant_params, output_path="./")
 
 if __name__ == "__main__":
