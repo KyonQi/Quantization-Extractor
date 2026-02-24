@@ -47,6 +47,7 @@ class TaskPayload:
     layer_config: LayerConfig
     slice_idx: Tuple[int, int] # output row for conv, output feature for linear
     input_patch: np.ndarray # slice of input feature map uint8
+    input_patch_compressed: bytes # compressed input patch
     weights: np.ndarray # slice of weights int8
     bias: np.ndarray # slice of bias int32
     quant_params: QuantParams
@@ -57,4 +58,7 @@ class ResultPayload:
     worker_id: int
     slice_idx: Tuple[int, int]
     output_patch: np.ndarray
+    output_patch_compressed: bytes# compressed output patch
     compute_time: float
+    codec_time: float = 0.0
+    compressed_size: int = 0

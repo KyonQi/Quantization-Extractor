@@ -10,6 +10,7 @@ import numpy as np
 
 from quant.quant_model_utils import extract_quantized_layers
 from coordinator import QuantCoordinator
+from models.utils import get_pytorch_quantized_model
 
 # Imagenette 到 ImageNet 的映射
 IMAGENETTE_TO_IMAGENET = {
@@ -24,52 +25,6 @@ IMAGENETTE_TO_IMAGENET = {
     8: 574,  # golf ball
     9: 701   # parachute
 }
-
-def get_pytorch_quantized_model(train_loader: DataLoader, num_calibration_batches=200, save_path: str = "mobilenet_v2_quantized.pth"):
-    """
-    PyTorch quantization.
-    It will load the predefined model if exists
-    """
-    q_model = q_mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1, 
-                             quantize=False)
-    q_model.eval()
-    
-    # configure the quant backend
-    backend = 'fbgemm'
-    torch.backends.quantized.engine = backend
-    q_model.qconfig = torch.quantization.get_default_qconfig(backend=backend)
-    
-    # fuse model
-    q_model.fuse_model()
-    
-    # prepare to quant
-    torch.quantization.prepare(q_model, inplace=True)
-
-    # load the pth if exists
-    if os.path.exists(save_path):
-        print(f"\n[Fast Load] Found saved model at {save_path}, loading...")
-        q_model(torch.randn(1, 3, 224, 224)) 
-        torch.quantization.convert(q_model, inplace=True)
-        q_model.load_state_dict(torch.load(save_path))
-        return q_model
-    
-    # calibrate
-    print(f"Calibrating with {num_calibration_batches} batches...")
-    q_model.eval() # eval is important: make sure dropout doesn't work, and batchnorm doesn't update the params
-    with torch.no_grad():
-        for i, (images, _) in enumerate(train_loader):
-            if i >= num_calibration_batches:
-                break
-            q_model(images)
-            if (i + 1) % 50 == 0:
-                print(f"  Calibrated {i + 1}/{num_calibration_batches} batches")
-    
-    # convert to the quant model
-    torch.quantization.convert(q_model, inplace=True)
-    torch.save(q_model.state_dict(), save_path) # save the quantized model
-    print("Quantization complete!\n")
-    
-    return q_model
 
 def evaluate_distributed():
     # 1. prepare the dataset
@@ -103,7 +58,7 @@ def evaluate_distributed():
     # small sample
     eval_subset = torch.utils.data.Subset(
         val_dataset, 
-        indices=torch.arange(1000)
+        indices=torch.arange(100)
     )
     eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False)
     
@@ -165,6 +120,17 @@ def evaluate_distributed():
                 results['SIM_INT8'] += 1
             
             total += 1
+
+        print("="*40)
+        print("Performance Report (Per Image)")
+        print("="*40)
+        print(f"Total Inference Time: {coord.stats['total_inference_time'] / total:.4f} s")
+        print(f"  - Compute Time:     {coord.stats['total_compute_time'] / total / coord.num_workers:.4f} s")
+        print(f"  - Codec Time:       {coord.stats['total_codec_time'] / total / coord.num_workers:.4f} s")
+        print(f"  - Overhead/Other:   {(coord.stats['total_inference_time'] - (coord.stats['total_compute_time'] + coord.stats['total_codec_time']) / coord.num_workers ) / (total):.4f} s")
+        print("-" * 40)
+        print(f"Total Data Transfer:  {coord.stats['total_comm_volume'] / 1024 / total / coord.num_workers:.2f} KB")
+        print("="*40)
     
     print(f"\n{'='*25} Results (100 samples) {'='*25}")
     print(f"Total Samples:      {total}")

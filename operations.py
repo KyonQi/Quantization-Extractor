@@ -86,7 +86,8 @@ def quantized_pad_input(x: np.ndarray, padding: int, z_in: int) -> np.ndarray:
 @njit(fastmath=True, cache=True)
 def requantize(acc_int32: np.ndarray, m, z_out: int) -> np.ndarray:
     acc_float = acc_int32.astype(np.float32) * m
-    q_out = np.round(acc_float) + z_out
+    # q_out = np.round(acc_float) + z_out
+    q_out = np.round(acc_float + z_out)
     return np.minimum(np.maximum(q_out, 0), 255).astype(np.uint8)
 
 @njit(fastmath=True, cache=True) # 去掉 parallel=True，使用 cache=True
@@ -123,7 +124,7 @@ def _quantized_conv2d_jit(input_patch: np.ndarray, weights: np.ndarray, bias_int
                     for ky in range(K):
                         for kx in range(K):
                             # 直接索引，无切片开销
-                            val += x_shifted[c, h_s + ky, w_s + kx] * w_shifted[c, 0, ky, kx]
+                            val += x_shifted[c, h_s + ky, w_s + kx] * w_shifted[c, 0, ky, kx] # w_shifted shape (C_out, C_in/groups, K, K)
                     
                     acc[c, i, j] = val + b_val
 
