@@ -26,12 +26,17 @@ IMAGENETTE_TO_IMAGENET = {
     9: 701   # parachute
 }
 
+WIDTH_MULT = 0.35 # 1.0 for full model, <1.0 for smaller models (e.g., 0.35)
+INPUT_SIZE = 224
+QUANTIZED_MODEL_PATH = f"./models/mobilenet_v2_quantized_{WIDTH_MULT}.pth"
+
+
 def evaluate_distributed():
     # 1. prepare the dataset
     data_dir = "./data/imagenette2-320"
     transform = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+        transforms.Resize(256),  # Resize to 256 for center cropping if 224, and 110 for 96
+        transforms.CenterCrop(INPUT_SIZE),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], 
                            std=[0.229, 0.224, 0.225])
@@ -65,15 +70,23 @@ def evaluate_distributed():
     # 2. load the model
     print("="*60)
     print("Loading FP32 model...")
-    pt_fp32_model = models.mobilenet_v2(
-        weights=models.MobileNet_V2_Weights.IMAGENET1K_V1
-    )
+    if WIDTH_MULT == 1.0:
+        pt_fp32_model = models.mobilenet_v2(
+                weights=models.MobileNet_V2_Weights.IMAGENET1K_V1
+            )
+    else:
+        pt_fp32_model = models.mobilenet_v2(
+            weights=None,
+            width_mult=WIDTH_MULT
+        )
     pt_fp32_model.eval()
     
     print("\nLoading Pytorch INT8 model...")
     pt_int8_model = get_pytorch_quantized_model(
         train_loader=calibration_loader,
-        num_calibration_batches=200
+        num_calibration_batches=200,
+        save_path=QUANTIZED_MODEL_PATH,
+        width_mult=WIDTH_MULT,
     )
 
     print("\nLoading My INT8 model...")
