@@ -46,7 +46,6 @@ def extract_conv_params(q_layer, s_in, z_in):
 
     return w_int8, b_int32, s_w, z_w, s_out, z_out
 
-# TODO check how to extract the residual layer quant params
 def extract_quantized_layers(q_model):
     """
     Parse QuantizableMobileNetV2

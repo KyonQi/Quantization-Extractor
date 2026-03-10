@@ -8,13 +8,18 @@ from tqdm import tqdm
 import os
 import numpy as np
 
-def get_pytorch_quantized_model(train_loader: DataLoader, num_calibration_batches=200, save_path: str = "./models/mobilenet_v2_quantized.pth"):
+def get_pytorch_quantized_model(train_loader: DataLoader, num_calibration_batches=200, 
+                                    save_path: str = "./models/mobilenet_v2_quantized.pth", width_mult: float = 1.0):
     """
     PyTorch quantization.
     It will load the predefined model if exists
     """
-    q_model = q_mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1, 
-                             quantize=False)
+    if width_mult == 1.0:
+        q_model = q_mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1, 
+                                 quantize=False)
+    else:
+        q_model = q_mobilenet_v2(weights=None, quantize=False, width_mult=width_mult)
+
     q_model.eval()
     
     # configure the quant backend
