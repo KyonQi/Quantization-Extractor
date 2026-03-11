@@ -11,6 +11,7 @@ import numpy as np
 from quant.quant_model_utils import extract_quantized_layers
 from coordinator import QuantCoordinator
 from models.utils import get_pytorch_quantized_model
+from models.registry import get_adapter
 
 # Imagenette 到 ImageNet 的映射
 IMAGENETTE_TO_IMAGENET = {
@@ -26,9 +27,9 @@ IMAGENETTE_TO_IMAGENET = {
     9: 701   # parachute
 }
 
-WIDTH_MULT = 0.35 # 1.0 for full model, <1.0 for smaller models (e.g., 0.35)
-INPUT_SIZE = 224
-QUANTIZED_MODEL_PATH = f"./models/mobilenet_v2_quantized_{WIDTH_MULT}.pth"
+# WIDTH_MULT = 1.0 # 1.0 for full model, <1.0 for smaller models (e.g., 0.35)
+# INPUT_SIZE = 224
+# QUANTIZED_MODEL_PATH = f"./models/mobilenet_v2_quantized_{WIDTH_MULT}.pth"
 
 
 def evaluate_distributed():
@@ -36,7 +37,7 @@ def evaluate_distributed():
     data_dir = "./data/imagenette2-320"
     transform = transforms.Compose([
         transforms.Resize(256),  # Resize to 256 for center cropping if 224, and 110 for 96
-        transforms.CenterCrop(INPUT_SIZE),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], 
                            std=[0.229, 0.224, 0.225])
@@ -70,27 +71,17 @@ def evaluate_distributed():
     # 2. load the model
     print("="*60)
     print("Loading FP32 model...")
-    if WIDTH_MULT == 1.0:
-        pt_fp32_model = models.mobilenet_v2(
-                weights=models.MobileNet_V2_Weights.IMAGENET1K_V1
-            )
-    else:
-        pt_fp32_model = models.mobilenet_v2(
-            weights=None,
-            width_mult=WIDTH_MULT
-        )
+    adapter = get_adapter("proxylessnas_mobile")  # or "mbv2_1.0" for the full model
+    pt_fp32_model = adapter.load_fp32()
     pt_fp32_model.eval()
     
     print("\nLoading Pytorch INT8 model...")
-    pt_int8_model = get_pytorch_quantized_model(
-        train_loader=calibration_loader,
-        num_calibration_batches=200,
-        save_path=QUANTIZED_MODEL_PATH,
-        width_mult=WIDTH_MULT,
-    )
+    pt_int8_model = adapter.quantize(calibration_loader=calibration_loader, 
+                                                num_calibration_batches=200, 
+                                                save_path="./models/proxylessnas_mobile.pth")
 
     print("\nLoading My INT8 model...")
-    sim_layers = extract_quantized_layers(pt_int8_model)
+    sim_layers = adapter.extract_quantized_layers(pt_int8_model)
     coord = QuantCoordinator(num_workers=4)
     input_scale = sim_layers[0][3]['s_in']
     input_zp = sim_layers[0][3]['z_in']
