@@ -71,14 +71,14 @@ def evaluate_distributed():
     # 2. load the model
     print("="*60)
     print("Loading FP32 model...")
-    adapter = get_adapter("proxylessnas_mobile")  # or "mbv2_1.0" for the full model
+    adapter = get_adapter("mnasnet0_5")  # or "mbv2_1.0" for the full model
     pt_fp32_model = adapter.load_fp32()
     pt_fp32_model.eval()
     
     print("\nLoading Pytorch INT8 model...")
     pt_int8_model = adapter.quantize(calibration_loader=calibration_loader, 
                                                 num_calibration_batches=200, 
-                                                save_path="./models/proxylessnas_mobile.pth")
+                                                save_path="./models/mnasnet0_5.pth")
 
     print("\nLoading My INT8 model...")
     sim_layers = adapter.extract_quantized_layers(pt_int8_model)
