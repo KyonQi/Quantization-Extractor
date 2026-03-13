@@ -1,56 +1,3 @@
-# import re
-# import matplotlib.pyplot as plt
-# import pandas as pd
-
-# def parse_log(filename):
-#     data = []
-#     # 提取层索引、块名称、总耗时
-#     pattern = r"Layer\s+([\d-]+)\s+\[\s*(\w+)\]\s+([\w\+]+):\s+total=([\d.]+)ms\s+compute=([\d.]+)ms"
-#     with open(filename, 'r') as f:
-#         for line in f:
-#             match = re.search(pattern, line)
-#             if match:
-#                 layer_range, _, name, total, _ = match.groups()
-#                 indices = [int(x) for x in layer_range.split('-')] if '-' in layer_range else [int(layer_range)]
-#                 if '-' in layer_range: indices = list(range(indices[0], indices[1] + 1))
-#                 data.append({'indices': indices, 'total': float(total), 'name': name, 'range': layer_range})
-#     return data
-
-# # 加载三个维度的实验数据
-# b_data = parse_log('./test/coordinator_proxy_block_padd.log')
-# l_data = parse_log('./test/coordinator_proxy_layer_padd.log')
-# h_data = parse_log('./test/coordinator_proxy_hybrid_padd.log')
-
-# # 以 Block 模式的结构为基准进行对齐
-# l_map = {item['indices'][0]: item['total'] for item in l_data}
-# comparison = []
-# for b in b_data:
-#     b_idx = set(b['indices'])
-#     l_sum = sum(l_map[i] for i in b_idx if i in l_map)
-#     h_sum = sum(h['total'] for h in h_data if set(h['indices']).issubset(b_idx))
-    
-#     comparison.append({
-#         'Block': b['name'], 'Range': b['range'],
-#         'Block_Mode': b['total'], 'Layer_Mode': l_sum, 'Hybrid_Mode': h_sum
-#     })
-
-# df = pd.DataFrame(comparison)
-
-# # 绘制三位对比柱状图
-# plt.figure(figsize=(16, 8))
-# x, width = range(len(df)), 0.25
-# plt.bar([i - width for i in x], df['Block_Mode'], width, label='Block Mode (8.7916s)', color='#3498db')
-# plt.bar(x, df['Layer_Mode'], width, label='Layer Mode (8.0047s)', color='#e74c3c')
-# plt.bar([i + width for i in x], df['Hybrid_Mode'], width, label='Hybrid Mode (Accumulated) (7.5779s)', color='#2ecc71')
-
-# plt.xticks(x, [f"{n}\n({r})" for n, r in zip(df['Block'], df['Range'])], rotation=45, ha='right', fontsize=8)
-# plt.ylabel('Latency (ms)')
-# plt.title('Performance Comparison Across Three Scheduling Modes')
-# plt.legend()
-# plt.tight_layout()
-# plt.savefig('./test/proxy_three_mode_comparison.png')
-
-
 import re
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -158,3 +105,55 @@ plt.grid(axis='y', linestyle='--', alpha=0.3)
 plt.tight_layout()
 
 plt.savefig('./test/proxy_three_mode_comparison.png')
+
+# import re
+# import matplotlib.pyplot as plt
+# import pandas as pd
+
+# def parse_log(filename):
+#     data = []
+#     # 提取层索引、块名称、总耗时
+#     pattern = r"Layer\s+([\d-]+)\s+\[\s*(\w+)\]\s+([\w\+]+):\s+total=([\d.]+)ms\s+compute=([\d.]+)ms"
+#     with open(filename, 'r') as f:
+#         for line in f:
+#             match = re.search(pattern, line)
+#             if match:
+#                 layer_range, _, name, total, _ = match.groups()
+#                 indices = [int(x) for x in layer_range.split('-')] if '-' in layer_range else [int(layer_range)]
+#                 if '-' in layer_range: indices = list(range(indices[0], indices[1] + 1))
+#                 data.append({'indices': indices, 'total': float(total), 'name': name, 'range': layer_range})
+#     return data
+
+# # 加载三个维度的实验数据
+# b_data = parse_log('./test/coordinator_proxy_block_padd.log')
+# l_data = parse_log('./test/coordinator_proxy_layer_padd.log')
+# h_data = parse_log('./test/coordinator_proxy_hybrid_padd.log')
+
+# # 以 Block 模式的结构为基准进行对齐
+# l_map = {item['indices'][0]: item['total'] for item in l_data}
+# comparison = []
+# for b in b_data:
+#     b_idx = set(b['indices'])
+#     l_sum = sum(l_map[i] for i in b_idx if i in l_map)
+#     h_sum = sum(h['total'] for h in h_data if set(h['indices']).issubset(b_idx))
+    
+#     comparison.append({
+#         'Block': b['name'], 'Range': b['range'],
+#         'Block_Mode': b['total'], 'Layer_Mode': l_sum, 'Hybrid_Mode': h_sum
+#     })
+
+# df = pd.DataFrame(comparison)
+
+# # 绘制三位对比柱状图
+# plt.figure(figsize=(16, 8))
+# x, width = range(len(df)), 0.25
+# plt.bar([i - width for i in x], df['Block_Mode'], width, label='Block Mode (8.7916s)', color='#3498db')
+# plt.bar(x, df['Layer_Mode'], width, label='Layer Mode (8.0047s)', color='#e74c3c')
+# plt.bar([i + width for i in x], df['Hybrid_Mode'], width, label='Hybrid Mode (Accumulated) (7.5779s)', color='#2ecc71')
+
+# plt.xticks(x, [f"{n}\n({r})" for n, r in zip(df['Block'], df['Range'])], rotation=45, ha='right', fontsize=8)
+# plt.ylabel('Latency (ms)')
+# plt.title('Performance Comparison Across Three Scheduling Modes')
+# plt.legend()
+# plt.tight_layout()
+# plt.savefig('./test/proxy_three_mode_comparison.png')
