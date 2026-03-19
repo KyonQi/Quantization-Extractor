@@ -100,6 +100,7 @@ class QuantizableMNASNet(nn.Module):
 @register("mnasnet0_5")
 class MNASNetAdapter(ModelAdapter):
     name = "mnasnet0_5"
+    input_size = 224
 
     def load_fp32(self):
         return models.mnasnet0_5(weights=models.MNASNet0_5_Weights.IMAGENET1K_V1).eval()

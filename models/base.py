@@ -39,7 +39,7 @@ class ModelAdapter(ABC):
         # load the pth if exists
         if save_path and os.path.exists(save_path):
             print(f"\n[Fast Load] Found saved model at {save_path}, loading...")
-            q_model(torch.randn(1, 3, 224, 224)) 
+            q_model(torch.randn(1, 3, self.input_size, self.input_size))
             torch.quantization.convert(q_model, inplace=True)
             q_model.load_state_dict(torch.load(save_path))
             return q_model

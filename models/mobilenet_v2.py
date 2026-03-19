@@ -13,6 +13,7 @@ from protocol.protocol import LayerConfig, LayerType
 @register("mbv2_1.0")
 class MobileNetV2Adapter(ModelAdapter):
     name = "mbv2_1.0"
+    input_size = 224
 
     def load_fp32(self):
         return models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1).eval()
@@ -327,6 +328,7 @@ class MobileNetV2Adapter(ModelAdapter):
 @register("mbv2_0.35")
 class MobileNetV2035Adapter(MobileNetV2Adapter):
     name = "mbv2_0.35"
+    input_size = 224
 
     def load_fp32(self):
         return models.mobilenet_v2(weights=None, width_mult=0.35).eval()
