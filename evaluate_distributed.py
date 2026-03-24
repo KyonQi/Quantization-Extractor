@@ -33,52 +33,54 @@ IMAGENETTE_TO_IMAGENET = {
 
 
 def evaluate_distributed():
-    # 1. prepare the dataset
+    # 1. load the model adapter
+    print("="*60)
+    print("Loading FP32 model...")
+    adapter = get_adapter("mcunet_in4")  # or "mnasnet0_5", "mbv2_1.0", "proxylessnas_mobile"
+    input_size = adapter.input_size
+    pt_fp32_model = adapter.load_fp32()
+    pt_fp32_model.eval()
+
+    # 2. prepare the dataset (transform depends on model input_size)
     data_dir = "./data/imagenette2-320"
+    resize_size = int(input_size * 256 / 224)  # scale proportionally
     transform = transforms.Compose([
-        transforms.Resize(256),  # Resize to 256 for center cropping if 224, and 110 for 96
-        transforms.CenterCrop(224),
+        transforms.Resize(resize_size),
+        transforms.CenterCrop(input_size),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
                            std=[0.229, 0.224, 0.225])
     ])
-    
+
     train_dir = f"{data_dir}/train"
     val_dir = f"{data_dir}/val"
-    
+
     try:
         train_dataset = datasets.ImageFolder(train_dir, transform=transform)
         val_dataset = datasets.ImageFolder(val_dir, transform=transform)
     except Exception as e:
         print(f"Error loading dataset: {e}")
         return
-    
+
     # calibrate data
     calibration_loader = DataLoader(
-        train_dataset, 
+        train_dataset,
         batch_size=32,
         shuffle=True,
         num_workers=4
     )
-    
+
     # small sample
     eval_subset = torch.utils.data.Subset(
-        val_dataset, 
+        val_dataset,
         indices=torch.arange(100)
     )
     eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False)
-    
-    # 2. load the model
-    print("="*60)
-    print("Loading FP32 model...")
-    adapter = get_adapter("mnasnet0_5")  # or "mbv2_1.0" for the full model
-    pt_fp32_model = adapter.load_fp32()
-    pt_fp32_model.eval()
-    
+
     print("\nLoading Pytorch INT8 model...")
-    pt_int8_model = adapter.quantize(calibration_loader=calibration_loader, 
-                                                num_calibration_batches=200, 
-                                                save_path="./models/mnasnet0_5.pth")
+    pt_int8_model = adapter.quantize(calibration_loader=calibration_loader,
+                                                num_calibration_batches=200,
+                                                save_path=f"./models/{adapter.name}_quantized.pth")
 
     print("\nLoading My INT8 model...")
     sim_layers = adapter.extract_quantized_layers(pt_int8_model)
