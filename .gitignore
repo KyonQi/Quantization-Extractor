@@ -10,3 +10,4 @@ extractor_mcu/mcu_*
 test/*.png
 test/plot*
 test/*.log
+test/old

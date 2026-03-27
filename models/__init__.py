@@ -3,3 +3,4 @@ from .mobilenet_v2 import MobileNetV2Adapter, MobileNetV2035Adapter  # 强制执
 from .proxylessnas import ProxylessNASAdapter
 from .mnasnet import MNASNetAdapter
 from .mcunet import MCUNetAdapter
+from .dscnn import DSCNNAdapter

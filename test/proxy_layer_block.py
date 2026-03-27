@@ -25,9 +25,9 @@ def parse_log(filename):
     return data
 
 # 1. 载入原始数据
-b_data = parse_log('./test/coordinator_proxy_block_padd.log')
-l_data = parse_log('./test/coordinator_proxy_layer_padd.log')
-h_data = parse_log('./test/coordinator_proxy_hybrid_padd.log')
+b_data = parse_log('./test/coordinator_proxy_pw_block.log')
+l_data = parse_log('./test/coordinator_proxy_pw_layer.log')
+h_data = parse_log('./test/coordinator_proxy_pw_hybrid.log')
 
 # 2. 构建 Layer 模式的映射 (按 Block 边界对齐)
 # 这里的逻辑是：将 Block 模式中对应的多个层的计算耗时和总耗时分别累加

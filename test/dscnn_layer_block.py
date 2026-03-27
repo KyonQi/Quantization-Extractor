@@ -25,9 +25,9 @@ def parse_log(filename):
     return data
 
 # 1. 载入原始数据
-b_data = parse_log('./test/coordinator_mcunet_pw_block.log')
-l_data = parse_log('./test/coordinator_mcunet_pw_layer.log')
-h_data = parse_log('./test/coordinator_mcunet_pw_hybrid.log')
+b_data = parse_log('./test/coordinator_dscnn_pw_block.log')
+l_data = parse_log('./test/coordinator_dscnn_pw_layer.log')
+h_data = parse_log('./test/coordinator_dscnn_pw_hybrid.log')
 
 # 2. 构建 Layer 模式的映射 (按 Block 边界对齐)
 # 这里的逻辑是：将 Block 模式中对应的多个层的计算耗时和总耗时分别累加
@@ -104,4 +104,4 @@ plt.legend(ncol=3, loc='upper left')
 plt.grid(axis='y', linestyle='--', alpha=0.3)
 plt.tight_layout()
 
-plt.savefig('./test/mcunet_three_mode_comparison.png')
+plt.savefig('./test/dscnn_three_mode_comparison.png')
