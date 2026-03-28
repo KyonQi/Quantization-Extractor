@@ -302,7 +302,7 @@ def main():
 
     sim_layers = adapter.extract_quantized_layers(q_model)
 
-    exporter = MCUExporter(model, 4)
+    exporter = MCUExporter(model, num_mcus)
     exporter.export(sim_layers, output_path)
 
 if __name__ == "__main__":

@@ -11,3 +11,4 @@ test/*.png
 test/plot*
 test/*.log
 test/old
+test/*_mcus
