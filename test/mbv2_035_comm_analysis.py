@@ -25,9 +25,9 @@ def parse_log(filename):
 
 
 # 1. 载入数据
-b_data = parse_log('./test/coordinator_035_pw_block.log')
-l_data = parse_log('./test/coordinator_035_pw_layer.log')
-h_data = parse_log('./test/coordinator_035_pw_hybrid.log')
+b_data = parse_log('./test/5_mcus/coordinator_035_pw_block.log')
+l_data = parse_log('./test/5_mcus/coordinator_035_pw_layer.log')
+h_data = parse_log('./test/5_mcus/coordinator_035_pw_hybrid.log')
 
 # 2. 按 Block 边界对齐
 l_comp_map = {item['indices'][0]: item['compute'] for item in l_data}
@@ -121,5 +121,5 @@ ax.legend(loc='upper left', fontsize=11, framealpha=0.9)
 ax.grid(axis='y', linestyle='--', alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('./test/mbv2_035_comm_analysis_2.png', dpi=300)
+plt.savefig('./test/mbv2_035_comm_analysis.png', dpi=300)
 print("Saved to ./test/mbv2_035_comm_analysis.png")
