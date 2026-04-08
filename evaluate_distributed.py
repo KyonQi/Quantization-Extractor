@@ -36,7 +36,7 @@ def evaluate_distributed():
     # 1. load the model adapter
     print("="*60)
     print("Loading FP32 model...")
-    adapter = get_adapter("dscnn_large")  # or "mnasnet0_5", "mbv2_1.0", "mbv2_0.35", "proxylessnas_mobile"， "dscnn_large", "mcunet_in4"
+    adapter = get_adapter("mnasnet0_5")  # or "mnasnet0_5", "mbv2_1.0", "mbv2_0.35", "proxylessnas_mobile"， "dscnn_large", "mcunet_in4"
     input_size = adapter.input_size
     pt_fp32_model = adapter.load_fp32()
     pt_fp32_model.eval()

@@ -71,7 +71,8 @@ class MCUExporter:
                     # which means each MCU contains (output_channels / num_mcus) columns of weights and the corresponding bias
                     out_ch_per_mcu = layer_cfg.out_channels // self.num_mcus
                     start_ch = mcu_id * out_ch_per_mcu
-                    end_ch = min(start_ch + out_ch_per_mcu, layer_cfg.out_channels)
+                    # Last MCU gets the remainder so no classes are dropped.
+                    end_ch = layer_cfg.out_channels if mcu_id == self.num_mcus - 1 else start_ch + out_ch_per_mcu
                     w_local = w_int8[start_ch:end_ch, :]
                     b_local = b_int32[start_ch:end_ch]
                 else:
@@ -172,20 +173,15 @@ class MCUExporter:
             for idx, (layer_cfg, _, _, qp_dict) in enumerate(sim_layers):
                 layer_name = layer_cfg.name
                 if layer_cfg.type == LayerType.LINEAR:
-                    # for linear layers, weights and bias are partitioned by colomn-wise
-                    # which means each MCU contains (output_channels / num_mcus) columns of weights and the corresponding bias
                     out_ch_per_mcu = layer_cfg.out_channels // self.num_mcus
                     start_ch = mcu_id * out_ch_per_mcu
-                    end_ch = min(start_ch + out_ch_per_mcu, layer_cfg.out_channels)
+                    end_ch = layer_cfg.out_channels if mcu_id == self.num_mcus - 1 else start_ch + out_ch_per_mcu
                     weight_scale = qp_dict['s_w'][start_ch:end_ch]
                     weight_zp = qp_dict['z_w'][start_ch:end_ch]
                 else:
                     weight_scale = qp_dict['s_w']
                     weight_zp = qp_dict['z_w']
 
-                # weight_scale = qp_dict['s_w']
-                # weight_zp = qp_dict['z_w']
-                
                 # check if it is per-channel
                 if isinstance(weight_scale, np.ndarray):
                     # Per-channel: export arrays
@@ -219,15 +215,13 @@ class MCUExporter:
                 if layer_cfg.type == LayerType.LINEAR:
                     out_ch_per_mcu = layer_cfg.out_channels // self.num_mcus
                     start_ch = mcu_id * out_ch_per_mcu
-                    end_ch = min(start_ch + out_ch_per_mcu, layer_cfg.out_channels)
+                    end_ch = layer_cfg.out_channels if mcu_id == self.num_mcus - 1 else start_ch + out_ch_per_mcu
                     weight_scale = qp_dict['s_w'][start_ch:end_ch]
                     weight_zp = qp_dict['z_w'][start_ch:end_ch]
                 else:
                     weight_scale = qp_dict['s_w']
                     weight_zp = qp_dict['z_w']
 
-                # weight_scale = qp_dict['s_w']
-                # weight_zp = qp_dict['z_w']
                 input_scale = qp_dict['s_in']
                 input_zp = qp_dict['z_in']
                 output_scale = qp_dict['s_out']
