@@ -12,3 +12,10 @@ test/plot*
 test/*.log
 test/old
 test/*_mcus
+
+test/dscnn/*.png
+test/mbv2/*.png
+test/mcunet/*.png
+test/mnasnet_05/*.png
+test/proxylessnas/*.png
+test/*.pdf

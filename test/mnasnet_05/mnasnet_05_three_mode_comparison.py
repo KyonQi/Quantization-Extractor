@@ -25,9 +25,9 @@ def parse_log(filename):
     return data
 
 # 1. 载入原始数据
-b_data = parse_log('./test/coordinator_mcunet_pw_block.log')
-l_data = parse_log('./test/coordinator_mcunet_pw_layer.log')
-h_data = parse_log('./test/coordinator_mcunet_pw_hybrid.log')
+b_data = parse_log('./test/5_mcus/coordinator_mnasnet_pw_block.log')
+l_data = parse_log('./test/5_mcus/coordinator_mnasnet_pw_layer.log')
+h_data = parse_log('./test/5_mcus/coordinator_mnasnet_pw_hybrid.log')
 
 # 2. 构建 Layer 模式的映射 (按 Block 边界对齐)
 # 这里的逻辑是：将 Block 模式中对应的多个层的计算耗时和总耗时分别累加
@@ -63,33 +63,33 @@ width = 0.25  # 每组模式的宽度
 
 # 颜色配置：深色代表 Compute，浅色（或带透明度）代表 Communicate
 colors = {
-    'B': ('#2980b9', '#3498db'), # Block: 深蓝/浅蓝
     'L': ('#c0392b', '#e74c3c'), # Layer: 深红/浅红
+    'B': ('#2980b9', '#3498db'), # Block: 深蓝/浅蓝
     'H': ('#27ae60', '#2ecc71')  # Hybrid: 深绿/浅绿
 }
 
-# --- Block Mode ---
-plt.bar([i - width for i in x], df['B_Comp'], width, label='Block: Compute', color=colors['B'][0])
-plt.bar([i - width for i in x], df['B_Tot'] - df['B_Comp'], width, bottom=df['B_Comp'], 
-        label='Block: Communicate', color=colors['B'][1], alpha=0.5)
-
 # --- Layer Mode ---
-plt.bar(x, df['L_Comp'], width, label='Layer: Compute', color=colors['L'][0])
-plt.bar(x, df['L_Tot'] - df['L_Comp'], width, bottom=df['L_Comp'], 
+plt.bar([i - width for i in x], df['L_Comp'], width, label='Layer: Compute', color=colors['L'][0])
+plt.bar([i - width for i in x], df['L_Tot'] - df['L_Comp'], width, bottom=df['L_Comp'],
         label='Layer: Communicate', color=colors['L'][1], alpha=0.5)
+
+# --- Block Mode ---
+plt.bar(x, df['B_Comp'], width, label='Block: Compute', color=colors['B'][0])
+plt.bar(x, df['B_Tot'] - df['B_Comp'], width, bottom=df['B_Comp'],
+        label='Block: Communicate', color=colors['B'][1], alpha=0.5)
 
 # --- Hybrid Mode ---
 plt.bar([i + width for i in x], df['H_Comp'], width, label='Hybrid: Compute', color=colors['H'][0])
-plt.bar([i + width for i in x], df['H_Tot'] - df['H_Comp'], width, bottom=df['H_Comp'], 
+plt.bar([i + width for i in x], df['H_Tot'] - df['H_Comp'], width, bottom=df['H_Comp'],
         label='Hybrid: Communicate', color=colors['H'][1], alpha=0.5)
 
-b_total = df['B_Tot'].sum() / 1000  # 转换为秒
 l_total = df['L_Tot'].sum() / 1000
+b_total = df['B_Tot'].sum() / 1000  # 转换为秒
 h_total = df['H_Tot'].sum() / 1000
 summary_box = (
     f"Total Inference Time:\n"
-    f"Block Mode: {b_total:.4f} s\n"
     f"Layer Mode: {l_total:.4f} s\n"
+    f"Block Mode: {b_total:.4f} s\n"
     f"Hybrid Mode: {h_total:.4f} s"
 )
 plt.text(0.98, 0.95, summary_box, transform=plt.gca().transAxes, fontsize=12, 
@@ -104,4 +104,4 @@ plt.legend(ncol=3, loc='upper left')
 plt.grid(axis='y', linestyle='--', alpha=0.3)
 plt.tight_layout()
 
-plt.savefig('./test/mcunet_three_mode_comparison.png')
+plt.savefig('./test/mnasnet_05/mnasnet_05_three_mode_comparison.png')
