@@ -219,13 +219,14 @@ class Exporter:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export quantized weights from PyTorch INT8 model")
     parser.add_argument('--num-mcus', type=int, default=1, help='Number of MCUs for partitioning the weights (default: 1)')
-    parser.add_argument('--output-dir', type=str, default='../PlatformIO_MCU/Download/include', help='Output directory for header files')
+    parser.add_argument('--output-dir', type=str, default='./extractor_mcu/', help='Output directory for header files')
     parser.add_argument('--model-path', type=str, default='./models/mobilenet_v2_quantized.pth', help='Path to quantized model')
 
     args = parser.parse_args()
     num_mcus = args.num_mcus
+    model_path = args.model_path
     # load the quantized model
-    q_model = get_pytorch_quantized_model(train_loader=None)
+    q_model = get_pytorch_quantized_model(train_loader=None, save_path=model_path, width_mult=0.35)
     q_model.eval()
 
     sim_layers = extract_quantized_layers(q_model)

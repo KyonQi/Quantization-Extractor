@@ -5,6 +5,9 @@ from models.utils import get_pytorch_quantized_model
 from protocol.protocol import LayerConfig, QuantParams
 from quant.quant_model_utils import extract_quantized_layers
 
+WIDTH_MULT = 0.35
+QUANTIZED_SAVE_PATH = f'./models/mobilenet_v2_quantized_{WIDTH_MULT}.pth'
+
 def layer_config_to_dict(layer_config: LayerConfig) -> dict:
     return {
         "name": layer_config.name,
@@ -49,14 +52,14 @@ def save_model_config(layers: list[LayerConfig], quant_params: list[dict], outpu
         }
         data["layers"].append(layer_data)
 
-        output_path: Path = Path(output_path)
-        output_path.mkdir(parents=True, exist_ok=True)
-        config_file = output_path / "model_config.json"
-        with open(config_file, 'w') as f:
-            json.dump(data, f, indent=2)
+    output_path: Path = Path(output_path)
+    output_path.mkdir(parents=True, exist_ok=True)
+    config_file = output_path / f"model_config_{WIDTH_MULT}.json"
+    with open(config_file, 'w') as f:
+        json.dump(data, f, indent=2)
 
 def main():
-    q_model = get_pytorch_quantized_model(train_loader=None)
+    q_model = get_pytorch_quantized_model(train_loader=None, save_path=QUANTIZED_SAVE_PATH, width_mult=WIDTH_MULT)
     q_model.eval()
 
     sim_layers = extract_quantized_layers(q_model)
@@ -77,7 +80,8 @@ def main():
         #     m=qp_dict.get("m", qp_dict["s_in"] * qp_dict["s_w"] / qp_dict["s_out"])
         # )
         # quant_params.append(qp)
-    save_model_config(layers=layer_configs, quant_params=quant_params, output_path="./")
+
+    save_model_config(layers=layer_configs, quant_params=quant_params, output_path="./extractor_mcu/")
 
 if __name__ == "__main__":
     main()

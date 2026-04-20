@@ -11,6 +11,7 @@ import numpy as np
 from quant.quant_model_utils import extract_quantized_layers
 from coordinator import QuantCoordinator
 from models.utils import get_pytorch_quantized_model
+from models.registry import get_adapter
 
 # Imagenette 到 ImageNet 的映射
 IMAGENETTE_TO_IMAGENET = {
@@ -26,71 +27,66 @@ IMAGENETTE_TO_IMAGENET = {
     9: 701   # parachute
 }
 
-WIDTH_MULT = 0.35 # 1.0 for full model, <1.0 for smaller models (e.g., 0.35)
-INPUT_SIZE = 224
-QUANTIZED_MODEL_PATH = f"./models/mobilenet_v2_quantized_{WIDTH_MULT}.pth"
+# WIDTH_MULT = 1.0 # 1.0 for full model, <1.0 for smaller models (e.g., 0.35)
+# INPUT_SIZE = 224
+# QUANTIZED_MODEL_PATH = f"./models/mobilenet_v2_quantized_{WIDTH_MULT}.pth"
 
 
 def evaluate_distributed():
-    # 1. prepare the dataset
-    data_dir = "./data/imagenette2-320"
-    transform = transforms.Compose([
-        transforms.Resize(256),  # Resize to 256 for center cropping if 224, and 110 for 96
-        transforms.CenterCrop(INPUT_SIZE),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                           std=[0.229, 0.224, 0.225])
-    ])
-    
-    train_dir = f"{data_dir}/train"
-    val_dir = f"{data_dir}/val"
-    
-    try:
-        train_dataset = datasets.ImageFolder(train_dir, transform=transform)
-        val_dataset = datasets.ImageFolder(val_dir, transform=transform)
-    except Exception as e:
-        print(f"Error loading dataset: {e}")
-        return
-    
+    # 1. load the model adapter
+    print("="*60)
+    print("Loading FP32 model...")
+    adapter = get_adapter("mnasnet0_5")  # or "mnasnet0_5", "mbv2_1.0", "mbv2_0.35", "proxylessnas_mobile"， "dscnn_large", "mcunet_in4"
+    input_size = adapter.input_size
+    pt_fp32_model = adapter.load_fp32()
+    pt_fp32_model.eval()
+
+    # 2. prepare the dataset
+    if hasattr(adapter, 'load_datasets'):
+        # MFCC / custom dataset (e.g. DSCNN)
+        train_dataset, val_dataset = adapter.load_datasets()
+        label_map = None  # labels are direct, no mapping needed
+    else:
+        # ImageNet-style dataset (e.g. MobileNet, MCUNet)
+        data_dir = "./data/imagenette2-320"
+        resize_size = int(input_size * 256 / 224)
+        transform = transforms.Compose([
+            transforms.Resize(resize_size),
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                               std=[0.229, 0.224, 0.225])
+        ])
+        try:
+            train_dataset = datasets.ImageFolder(f"{data_dir}/train", transform=transform)
+            val_dataset = datasets.ImageFolder(f"{data_dir}/val", transform=transform)
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+            return
+        label_map = IMAGENETTE_TO_IMAGENET
     # calibrate data
     calibration_loader = DataLoader(
-        train_dataset, 
+        train_dataset,
         batch_size=32,
         shuffle=True,
         num_workers=4
     )
-    
+
     # small sample
+    num_eval = min(100, len(val_dataset))
     eval_subset = torch.utils.data.Subset(
-        val_dataset, 
-        indices=torch.arange(100)
+        val_dataset,
+        indices=torch.arange(num_eval)
     )
     eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False)
-    
-    # 2. load the model
-    print("="*60)
-    print("Loading FP32 model...")
-    if WIDTH_MULT == 1.0:
-        pt_fp32_model = models.mobilenet_v2(
-                weights=models.MobileNet_V2_Weights.IMAGENET1K_V1
-            )
-    else:
-        pt_fp32_model = models.mobilenet_v2(
-            weights=None,
-            width_mult=WIDTH_MULT
-        )
-    pt_fp32_model.eval()
-    
+
     print("\nLoading Pytorch INT8 model...")
-    pt_int8_model = get_pytorch_quantized_model(
-        train_loader=calibration_loader,
-        num_calibration_batches=200,
-        save_path=QUANTIZED_MODEL_PATH,
-        width_mult=WIDTH_MULT,
-    )
+    pt_int8_model = adapter.quantize(calibration_loader=calibration_loader,
+                                                num_calibration_batches=200,
+                                                save_path=f"./models/{adapter.name}_quantized.pth")
 
     print("\nLoading My INT8 model...")
-    sim_layers = extract_quantized_layers(pt_int8_model)
+    sim_layers = adapter.extract_quantized_layers(pt_int8_model)
     coord = QuantCoordinator(num_workers=4)
     input_scale = sim_layers[0][3]['s_in']
     input_zp = sim_layers[0][3]['z_in']
@@ -103,18 +99,18 @@ def evaluate_distributed():
     total = 0
     
     print("="*60)
-    print("EVALUATION (100 samples)")
+    print(f"EVALUATION ({num_eval} samples)")
     print("="*60)
-    
+
     with torch.no_grad():
         for inputs, labels in tqdm(eval_loader, desc="Evaluating"):
             label_idx = int(labels.item())
-            true_global_label = IMAGENETTE_TO_IMAGENET[label_idx]
-            
+            true_label = label_map[label_idx] if label_map else label_idx
+
             # FP32 prediction
             fp32_out = pt_fp32_model(inputs)
             fp32_pred = int(torch.argmax(fp32_out))
-            
+
             # INT8 prediction
             pt_int8_out = pt_int8_model(inputs)
             pt_int8_pred = int(torch.argmax(pt_int8_out))
@@ -124,14 +120,14 @@ def evaluate_distributed():
             coord.quantize_input(img_np, input_scale, input_zp)
             sim_out_uint8, _ = coord.execute_inference(sim_layers)
             sim_pred = int(np.argmax(sim_out_uint8))
-            
-            if fp32_pred == true_global_label:
+
+            if fp32_pred == true_label:
                 results['FP32'] += 1
-            if pt_int8_pred == true_global_label:
+            if pt_int8_pred == true_label:
                 results['PT_INT8'] += 1
-            if sim_pred == true_global_label:
+            if sim_pred == true_label:
                 results['SIM_INT8'] += 1
-            
+
             total += 1
 
         print("="*40)
@@ -145,7 +141,7 @@ def evaluate_distributed():
         print(f"Total Data Transfer:  {coord.stats['total_comm_volume'] / 1024 / total / coord.num_workers:.2f} KB")
         print("="*40)
     
-    print(f"\n{'='*25} Results (100 samples) {'='*25}")
+    print(f"\n{'='*25} Results ({num_eval} samples) {'='*25}")
     print(f"Total Samples:      {total}")
     print(f"FP32 Accuracy:      {results['FP32']/total:.2%} ({results['FP32']}/{total})")
     print(f"INT8 Accuracy:      {results['PT_INT8']/total:.2%} ({results['PT_INT8']}/{total})")
