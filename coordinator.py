@@ -2,7 +2,7 @@ import numpy as np
 import multiprocessing
 import json
 import time
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Optional
 
 from worker import Worker, QuantWorker
 from protocol.protocol import MessageType, TaskPayload, ResultPayload, LayerConfig, LayerType, QuantParams
@@ -143,7 +143,7 @@ class Coordinator:
 
         
 class QuantCoordinator:
-    def __init__(self, num_workers: int, quant_params_path: str = "NoUse") -> None:
+    def __init__(self, num_workers: int, quant_params_path: str = "NoUse", use_halo: bool = False) -> None:
         self.num_workers = num_workers
         self.task_queue = [multiprocessing.Queue() for _ in range(num_workers)]
         self.result_queue = multiprocessing.Queue()
@@ -163,6 +163,12 @@ class QuantCoordinator:
             "total_compute_time": 0.0 # total time spent in computation
         }
 
+        # halo state
+        self.use_halo = use_halo
+        self._prev_conv_name: Optional[str] = None
+        self._prev_worker_rows: Optional[list] = None # List[(start_row, end_row)] per worker
+        self._prev_H_out: Optional[int] = None
+
     def get_quant_params(self, layer_name: str) -> Tuple[float, int]:
         """ Get scale and zero point for a given layer """
         if layer_name not in self.q_params_dict:
@@ -180,6 +186,11 @@ class QuantCoordinator:
         # self.stats = {k: 0 for k in self.stats}
         
         start_time = time.perf_counter()
+
+        self._prev_conv_name = None
+        self._prev_worker_rows = None
+        self._prev_H_out = None
+
         self.workers = [QuantWorker(i, self.task_queue[i], self.result_queue) for i in range(self.num_workers)]
         for w in self.workers:
             w.start()
@@ -296,6 +307,11 @@ class QuantCoordinator:
                 raise ValueError("Unexpected message type from worker")
         self.feature_map = final_logits
 
+        # clear the cache since linear layer won't be used for halo
+        self._prev_conv_name = None
+        self._prev_worker_rows = None
+        self._prev_H_out = None
+
     def _distribute_conv(self, layer: LayerConfig, weights_q: np.ndarray, bias_q: np.ndarray, quant_params: QuantParams) -> None:
         C, H, W = self.feature_map.shape
         if layer.padding > 0:
@@ -305,6 +321,15 @@ class QuantCoordinator:
         
         H_out = (H + 2 * layer.padding - layer.kernel_size) // layer.stride + 1
         W_out = (W + 2 * layer.padding - layer.kernel_size) // layer.stride + 1
+
+        # halo mode
+        halo_mode = (
+            self.use_halo 
+            and self._prev_conv_name is not None 
+            and layer.residual_add_to is None
+            and layer.residual_connect_from is None
+        )
+        new_worker_rows: List[Tuple[int, int]] = []
 
         # distribute rows to workers
         rows_per_worker = int(np.ceil(H_out / self.num_workers))
@@ -324,16 +349,46 @@ class QuantCoordinator:
             self.stats["total_codec_time"] += (time.perf_counter() - t0)
             self.stats["total_comm_volume"] += len(input_patch_compressed)
 
-            task = TaskPayload(
-                layer_config=layer,
-                slice_idx=(start_row, end_row),
-                input_patch=input_patch,
-                input_patch_compressed=input_patch_compressed,
-                weights=weights_q,
-                bias=bias_q,
-                quant_params=quant_params
-            )
+            if not halo_mode:
+                task = TaskPayload(
+                    layer_config=layer,
+                    slice_idx=(start_row, end_row),
+                    input_patch=input_patch,
+                    input_patch_compressed=input_patch_compressed,
+                    weights=weights_q,
+                    bias=bias_q,
+                    quant_params=quant_params
+                )
+            else:
+                prev_start, prev_end = self._prev_worker_rows[i]
+                cache_padded_start = layer.padding + prev_start
+                cache_padded_end = layer.padding + prev_end
+                ov_start = max(in_start_y, cache_padded_start)
+                ov_end = min(in_end_y, cache_padded_end)
+                if ov_end <= ov_start:
+                    raise ValueError(f"No overlap between worker {i} input patch and cached halo data for layer {layer.name}")
+                cache_use_start = ov_start - cache_padded_start
+                cache_use_end = cache_use_start + (ov_end - ov_start)
+                halo_top = padded_input[:, in_start_y:ov_start, :]
+                halo_bottom = padded_input[:, ov_end:in_end_y, :]
+                task = TaskPayload(
+                    layer_config=layer,
+                    slice_idx=(start_row, end_row),
+                    input_patch=input_patch,
+                    input_patch_compressed=input_patch_compressed,
+                    weights=weights_q,
+                    bias=bias_q,
+                    quant_params=quant_params,
+                    prev_layer_name=self._prev_conv_name,
+                    halo_top=halo_top,
+                    halo_bottom=halo_bottom,
+                    cache_use_range=(cache_use_start, cache_use_end)
+                )
+
             self.task_queue[i].put((MessageType.TASK, task))
+
+            new_worker_rows.append((start_row, end_row))
+
             active_workers += 1
         
         # collect results
@@ -360,6 +415,11 @@ class QuantCoordinator:
             else:
                 raise ValueError("Unexpected message type from worker")
         self.feature_map = new_map
+
+        # update halo state
+        self._prev_conv_name = layer.name
+        self._prev_worker_rows = new_worker_rows
+        self._prev_H_out = H_out
 
     def _apply_residual(self, res_key: str, curr_s, curr_z, target_s, target_z) -> None:
         res_data, res_s, res_z = self.residual_buffer[res_key]

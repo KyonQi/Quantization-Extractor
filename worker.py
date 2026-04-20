@@ -63,6 +63,9 @@ class QuantWorker(multiprocessing.Process):
         self.result_queue = result_queue
 
         self.compressor = BitMapANSCompressor()
+
+        # cache output for halo usage
+        self.local_cache: Dict[str, np.ndarray] = {}
     
     def run(self) -> None:
         # print(f"[Worker {self.worker_id}] Starting quant worker process.")
@@ -78,7 +81,8 @@ class QuantWorker(multiprocessing.Process):
                 start_t = time.time()
                 # record the time
                 t0 = time.perf_counter()
-                input_patch = self.compressor.decompress(task.input_patch_compressed)
+                # input_patch = self.compressor.decompress(task.input_patch_compressed)
+                input_patch = self._fetch_input(task)
                 t_decomp = time.perf_counter() - t0
 
                 # 1. perform quantized operation based on layer type
@@ -92,6 +96,12 @@ class QuantWorker(multiprocessing.Process):
                                            task.bias, task.layer_config.stride,
                                            task.layer_config.groups, task.quant_params)
                 t_compute = time.perf_counter() - t_compute_start
+
+                # cache the conv output for next halo layer
+                if task.layer_config.type != LayerType.LINEAR:
+                    self.local_cache[task.layer_config.name] = out
+
+
                 t1 = time.perf_counter()
                 output_patch_compressed = self.compressor.compress(out)
                 t_comp = time.perf_counter() - t1
@@ -114,7 +124,35 @@ class QuantWorker(multiprocessing.Process):
                 # print(f"[Worker {self.worker_id}] Terminating quant worker process.")
                 break
 
+    def _fetch_input(self, task: TaskPayload) -> np.ndarray:
+        """ fetch input for convolutional layer, either from task payload or from local cache for halo data """
+        if task.prev_layer_name is None:
+            return self.compressor.decompress(task.input_patch_compressed)
         
+        # halo reconstruction
+        cached = self.local_cache[task.prev_layer_name] # (C, rows_cached, cols)
+        use_start, use_end = task.cache_use_range
+        cache_slice = cached[:, use_start:use_end, :]
+        padding = task.layer_config.padding
+        z_in = int(task.quant_params.z_in)
+
+        if padding > 0:
+            cache_wpad = np.pad(
+                cache_slice, ((0, 0), (0, 0), (padding, padding)),
+                mode="constant", constant_values=z_in
+            )
+        else:
+            cache_wpad = cache_slice
+
+        parts = []
+        top = task.halo_top
+        if top.size > 0:
+            parts.append(top)
+        parts.append(cache_wpad)
+        bottom = task.halo_bottom
+        if bottom.size > 0:
+            parts.append(bottom)
+        return np.concatenate(parts, axis=1) # axis = 1?
                 
         
         

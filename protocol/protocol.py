@@ -46,11 +46,19 @@ class TaskPayload:
     """ send to the worker """
     layer_config: LayerConfig
     slice_idx: Tuple[int, int] # output row for conv, output feature for linear
-    input_patch: np.ndarray # slice of input feature map uint8
-    input_patch_compressed: bytes # compressed input patch
     weights: np.ndarray # slice of weights int8
     bias: np.ndarray # slice of bias int32
     quant_params: QuantParams
+    # Full-patch mode
+    input_patch: Optional[np.ndarray] = None # slice of input feature map uint8
+    input_patch_compressed: Optional[bytes] = None # compressed input patch
+    # Halo mode
+    prev_layer_name: Optional[str] = None # if not None, worker needs to fetch halo data from coordinator using this key
+    halo_top: Optional[np.ndarray] = None # halo data on the top, only for conv
+    halo_bottom: Optional[np.ndarray] = None # halo data on the bottom, only for
+    cache_use_range: Optional[Tuple[int, int]] = None # if not None, worker can only use this range of the input feature map for computation, only for conv
+
+
 
 @dataclass
 class ResultPayload:
