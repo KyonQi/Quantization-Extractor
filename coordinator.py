@@ -234,6 +234,12 @@ class QuantCoordinator:
             target_s = qp_dict.get('residual_out_scale', s_out)
             target_z = qp_dict.get('residual_out_zp', z_out)
             self._apply_residual(res_key=layer.residual_connect_from, curr_s=s_out, curr_z=z_out, target_s=target_s, target_z=target_z)
+            # coord's feature_map was just modified in-place; workers' local_cache
+            # for this layer still holds the pre-residual output. Invalidate halo
+            # state so the NEXT layer falls back to full-patch distribution.
+            self._prev_conv_name = None
+            self._prev_worker_rows = None
+            self._prev_H_out = None
             
     def _distribute_linear(self, layer: LayerConfig, weights_q: np.ndarray, bias_q: np.ndarray, quant_params: QuantParams) -> None:
         input_vec = self.feature_map.flatten() # (C_in, )
