@@ -19,3 +19,5 @@ test/mcunet/*.png
 test/mnasnet_05/*.png
 test/proxylessnas/*.png
 test/*.pdf
+
+plans

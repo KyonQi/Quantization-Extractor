@@ -165,7 +165,8 @@ class QuantCoordinator:
         self.stats = {
             "total_inference_time": 0.0, # end to end time
             "total_comm_volume": 0, # total communication volume in bytes
-            "total_compute_time": 0.0 # total time spent in computation
+            "total_compute_time": 0.0, # total time spent in computation
+            "per_layer_comm": {}, # {name : {"down": int, "up": int, "total": int, "halo": bool}}
         }
 
         # halo state
@@ -195,6 +196,10 @@ class QuantCoordinator:
         self._prev_conv_name = None
         self._prev_worker_rows = None
         self._prev_H_out = None
+
+        self.stats["total_comm_volume"] = 0
+        self.stats["total_compute_time"] = 0
+        self.stats["per_layer_comm"] = {}
 
         self.workers = [QuantWorker(i, self.task_queue[i], self.result_queue) for i in range(self.num_workers)]
         for w in self.workers:
@@ -251,6 +256,8 @@ class QuantCoordinator:
         total_classes = layer.out_channels
         classes_per_worker = int(np.ceil(total_classes / self.num_workers))
         active_workers = 0
+        # stats
+        down_bytes = 0
 
         # t0 = time.perf_counter()
         # input_vec_compressed = self.compressor.compress(input_vec)
@@ -284,6 +291,7 @@ class QuantCoordinator:
 
             # self.stats["total_comm_volume"] += len(input_vec_compressed)
             self.stats["total_comm_volume"] += input_vec.nbytes
+            down_bytes += input_vec.nbytes
 
             task = TaskPayload(
                 layer_config=layer,
@@ -299,6 +307,8 @@ class QuantCoordinator:
         
         final_logits = np.zeros((total_classes, ), dtype=np.uint8)
         collected = 0
+        # stats
+        up_bytes = 0
         while collected < active_workers:
             type_, res = self.result_queue.get()
             if type_ == MessageType.RESULT:
@@ -309,6 +319,7 @@ class QuantCoordinator:
                 # self.stats["total_compute_time"] += res.compute_time
                 self.stats["total_comm_volume"] += res.output_patch.nbytes
                 self.stats["total_compute_time"] += res.compute_time
+                up_bytes += res.output_patch.nbytes
 
                 start_cls, end_cls = res.slice_idx
                 final_logits[start_cls:end_cls] = res.output_patch
@@ -320,6 +331,14 @@ class QuantCoordinator:
             else:
                 raise ValueError("Unexpected message type from worker")
         self.feature_map = final_logits
+
+        # update stats
+        self.stats["per_layer_comm"][layer.name] = {
+            "down": down_bytes,
+            "up": up_bytes,
+            "total": down_bytes + up_bytes,
+            "halo": False, # linear layer won't use halo
+        }
 
         # clear the cache since linear layer won't be used for halo
         self._prev_conv_name = None
@@ -348,6 +367,8 @@ class QuantCoordinator:
         # distribute rows to workers
         rows_per_worker = int(np.ceil(H_out / self.num_workers))
         active_workers = 0
+        # stats
+        down_bytes = 0
         
         for i in range(self.num_workers):
             start_row = i * rows_per_worker
@@ -365,6 +386,7 @@ class QuantCoordinator:
             self.stats["total_comm_volume"] += input_patch.nbytes
 
             if not halo_mode:
+                down_bytes += input_patch.nbytes
                 task = TaskPayload(
                     layer_config=layer,
                     slice_idx=(start_row, end_row),
@@ -386,6 +408,7 @@ class QuantCoordinator:
                 cache_use_end = cache_use_start + (ov_end - ov_start)
                 halo_top = padded_input[:, in_start_y:ov_start, :]
                 halo_bottom = padded_input[:, ov_end:in_end_y, :]
+                down_bytes += halo_top.nbytes + halo_bottom.nbytes
                 task = TaskPayload(
                     layer_config=layer,
                     slice_idx=(start_row, end_row),
@@ -409,6 +432,8 @@ class QuantCoordinator:
         # collect results
         new_map = np.zeros((layer.out_channels, H_out, W_out), dtype=np.uint8)
         collected = 0
+        # stats
+        up_bytes = 0
         while collected < active_workers:
             type_, res = self.result_queue.get()
             if type_ == MessageType.RESULT:
@@ -419,7 +444,7 @@ class QuantCoordinator:
                 # self.stats["total_compute_time"] += res.compute_time'
                 self.stats["total_comm_volume"] += res.output_patch.nbytes
                 self.stats["total_compute_time"] += res.compute_time
-
+                up_bytes += res.output_patch.nbytes
                 start_row, end_row = res.slice_idx
                 # new_map[:, start_row:end_row, :] = res.output_patch
                 
@@ -433,6 +458,14 @@ class QuantCoordinator:
                 raise ValueError("Unexpected message type from worker")
         self.feature_map = new_map
 
+        # update stats
+        self.stats["total_comm_volume"] += down_bytes + up_bytes
+        self.stats["per_layer_comm"][layer.name] = {
+            "down": down_bytes,
+            "up": up_bytes,
+            "total": down_bytes + up_bytes,
+            "halo": halo_mode,
+        }
         # update halo state
         self._prev_conv_name = layer.name
         self._prev_worker_rows = new_worker_rows

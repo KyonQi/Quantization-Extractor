@@ -13,7 +13,7 @@ from coordinator import QuantCoordinator
 from models.utils import get_pytorch_quantized_model
 from models.registry import get_adapter
 
-# Imagenette 到 ImageNet 的映射
+# Imagenette to ImageNet label mapping
 IMAGENETTE_TO_IMAGENET = {
     0: 0,    # tench
     1: 217,  # English springer
