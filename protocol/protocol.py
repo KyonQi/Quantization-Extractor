@@ -51,7 +51,7 @@ class TaskPayload:
     quant_params: QuantParams
     # Full-patch mode
     input_patch: Optional[np.ndarray] = None # slice of input feature map uint8
-    input_patch_compressed: Optional[bytes] = None # compressed input patch
+    # input_patch_compressed: Optional[bytes] = None # compressed input patch
     # Halo mode
     prev_layer_name: Optional[str] = None # if not None, worker needs to fetch halo data from coordinator using this key
     halo_top: Optional[np.ndarray] = None # halo data on the top, only for conv
@@ -66,7 +66,7 @@ class ResultPayload:
     worker_id: int
     slice_idx: Tuple[int, int]
     output_patch: np.ndarray
-    output_patch_compressed: bytes# compressed output patch
+    # output_patch_compressed: bytes# compressed output patch
     compute_time: float
-    codec_time: float = 0.0
-    compressed_size: int = 0
+    # codec_time: float = 0.0
+    # compressed_size: int = 0

@@ -62,7 +62,7 @@ class QuantWorker(multiprocessing.Process):
         self.task_queue = task_queue
         self.result_queue = result_queue
 
-        self.compressor = BitMapANSCompressor()
+        # self.compressor = BitMapANSCompressor()
 
         # cache output for halo usage
         self.local_cache: Dict[str, np.ndarray] = {}
@@ -80,10 +80,10 @@ class QuantWorker(multiprocessing.Process):
                 task: TaskPayload = payload
                 start_t = time.time()
                 # record the time
-                t0 = time.perf_counter()
+                # t0 = time.perf_counter()
                 # input_patch = self.compressor.decompress(task.input_patch_compressed)
                 input_patch = self._fetch_input(task)
-                t_decomp = time.perf_counter() - t0
+                # t_decomp = time.perf_counter() - t0
 
                 # 1. perform quantized operation based on layer type
                 t_compute_start = time.perf_counter()
@@ -102,21 +102,21 @@ class QuantWorker(multiprocessing.Process):
                     self.local_cache[task.layer_config.name] = out
 
 
-                t1 = time.perf_counter()
-                output_patch_compressed = self.compressor.compress(out)
-                t_comp = time.perf_counter() - t1
-                upstream_size = len(output_patch_compressed)
+                # t1 = time.perf_counter()
+                # output_patch_compressed = self.compressor.compress(out)
+                # t_comp = time.perf_counter() - t1
+                # upstream_size = len(output_patch_compressed)
 
                 duration = time.time() - start_t
                 res = ResultPayload(
                     worker_id=self.worker_id,
                     slice_idx=task.slice_idx,
                     output_patch=out,
-                    output_patch_compressed=output_patch_compressed,
+                    # output_patch_compressed=output_patch_compressed,
                     # compute_time=duration,
                     compute_time=t_compute,
-                    codec_time=t_decomp + t_comp,
-                    compressed_size=upstream_size
+                    # codec_time=t_decomp + t_comp,
+                    # compressed_size=upstream_size
                 )
                 self.result_queue.put((MessageType.RESULT, res))
 
@@ -127,7 +127,8 @@ class QuantWorker(multiprocessing.Process):
     def _fetch_input(self, task: TaskPayload) -> np.ndarray:
         """ fetch input for convolutional layer, either from task payload or from local cache for halo data """
         if task.prev_layer_name is None:
-            return self.compressor.decompress(task.input_patch_compressed)
+            return task.input_patch
+            # return self.compressor.decompress(task.input_patch_compressed)
         
         # halo reconstruction
         cached = self.local_cache[task.prev_layer_name] # (C, rows_cached, cols)
