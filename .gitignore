@@ -15,6 +15,7 @@ test/*_mcus
 
 test/dscnn/*.png
 test/mbv2/*.png
+test/mbv2/halo/*
 test/mcunet/*.png
 test/mnasnet_05/*.png
 test/proxylessnas/*.png
