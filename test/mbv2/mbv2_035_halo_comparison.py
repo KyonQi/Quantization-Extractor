@@ -27,7 +27,7 @@ from matplotlib.patches import Rectangle
 #     "/home/kyonqi/Project/RustProjects/logs/mbv2_035/fix_delay/4_mcus/halo_on/coordinator_block_info.log"
 # )
 DEFAULT_OUT_DIR = Path(
-    "/home/kyonqi/Project/RustProjects/Python_Sim_Infer/test/mbv2/halo/new_comparison"
+    "/home/kyonqi/Project/RustProjects/Python_Sim_Infer/test/mbv2/halo/new_comparison_fix_nodelay"
 )
 
 DEFAULT_OFF = Path(
