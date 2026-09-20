@@ -20,7 +20,7 @@ class MCUNetAdapter(ModelAdapter):
     input_size = 160
 
     def load_fp32(self) -> nn.Module:
-        model = torch.load("./models/mcu_model.pth", weights_only=False, map_location="cpu")
+        model = torch.load("./models/mcunet_fp32.pth", weights_only=False, map_location="cpu")
         model.eval()
         return model
 
